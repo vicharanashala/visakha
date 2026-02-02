@@ -5,6 +5,7 @@ import { connectDB } from "./db.js";
 import { ObjectId } from "mongodb";
 
 const app: express.Application = express();
+app.use(express.json());
 
 app.get("/feedback-conversations", async (req: Request, res: Response) => {
   try {
@@ -104,6 +105,7 @@ app.get("/feedback-conversations", async (req: Request, res: Response) => {
           createdAt: "$conversation.createdAt",
           updatedAt: "$conversation.updatedAt",
           latestFeedbackDate: 1,
+          resolved: "$conversation.resolved",
 
           messages: {
             $map: {
@@ -290,6 +292,7 @@ app.get("/feedback-conversations/:conversationId", async (req: Request, res: Res
           title: "$conversation.title",
           createdAt: "$conversation.createdAt",
           updatedAt: "$conversation.updatedAt",
+          resolved: "$conversation.resolved",
 
           messages: {
             $map: {
@@ -368,6 +371,40 @@ app.get("/feedback-conversations/:conversationId", async (req: Request, res: Res
     }
 
     res.json(result[0]);
+  } catch (err) {
+    console.error(err);
+    const error = err as Error;
+    res.status(500).json({ error: "Internal Server Error", message: error.message });
+  }
+});
+
+// New endpoint to toggle resolved status
+app.patch("/feedback-conversations/:conversationId/resolved", async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { conversationId } = req.params;
+    const { resolved } = req.body;
+
+    if (typeof resolved !== 'boolean') {
+      return res.status(400).json({ error: "Invalid request", message: "resolved must be a boolean" });
+    }
+
+    const result = await db
+      .collection("conversations")
+      .updateOne(
+        { conversationId: conversationId },
+        { $set: { resolved: resolved } }
+      );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    res.json({
+      success: true,
+      conversationId,
+      resolved
+    });
   } catch (err) {
     console.error(err);
     const error = err as Error;
@@ -463,6 +500,7 @@ app.get("/feedback-viewer", async (req: Request, res: Response) => {
           createdAt: "$conversation.createdAt",
           updatedAt: "$conversation.updatedAt",
           latestFeedbackDate: 1,
+          resolved: "$conversation.resolved",
 
           messages: {
             $map: {
@@ -644,6 +682,7 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
 
       // Count feedback messages
       const feedbackCount = conv.messages.filter((m: any) => m.feedback).length;
+      const isResolved = conv.resolved === true;
 
       let messagesHTML = '';
       conv.messages.forEach((msg: any, msgIndex: number) => {
@@ -707,13 +746,20 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
 
       const convId = `conv-${convIndex}`;
       conversationsHTML += `
-        <div class="conversation-card">
+        <div class="conversation-card ${isResolved ? 'resolved' : ''}">
           <div class="conversation-header clickable" onclick="toggleConversation('${convId}')">
             <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
               <span class="toggle-icon" id="${convId}-icon">▶</span>
               <span class="conversation-title">${escapeHtml(conv.title)}</span>
+              ${isResolved ? '<span class="resolved-badge">✓ Resolved</span>' : ''}
             </div>
             <div style="display: flex; align-items: center; gap: 12px;">
+              <label class="toggle-switch" onclick="event.stopPropagation()">
+                <input type="checkbox" 
+                       ${isResolved ? 'checked' : ''} 
+                       onchange="toggleResolved('${conv.conversationId}', this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
               <span class="feedback-count">${feedbackCount} feedback${feedbackCount !== 1 ? 's' : ''}</span>
               <span class="conversation-meta">${createdDate}</span>
             </div>
@@ -820,6 +866,11 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
+        .conversation-card.resolved {
+            background: #f0fdf4;
+            border-color: #86efac;
+        }
+
         .conversation-header {
             margin-bottom: 20px;
             padding-bottom: 12px;
@@ -840,6 +891,10 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
 
         .conversation-header.clickable:hover {
             background: #fafafa;
+        }
+
+        .resolved .conversation-header.clickable:hover {
+            background: #dcfce7;
         }
 
         .toggle-icon {
@@ -880,6 +935,16 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             font-size: 16px;
             font-weight: 600;
             color: #333;
+        }
+
+        .resolved-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #22c55e;
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
         }
 
         .conversation-meta {
@@ -1046,6 +1111,52 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             margin-bottom: 4px;
         }
 
+        /* Toggle Switch Styles */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .3s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #22c55e;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+
         .pagination {
             display: flex;
             justify-content: center;
@@ -1150,6 +1261,30 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             } else {
                 element.classList.add('collapsed');
                 icon.classList.remove('expanded');
+            }
+        }
+
+        async function toggleResolved(conversationId, resolved) {
+            try {
+                const response = await fetch(\`/feedback-conversations/\${conversationId}/resolved\`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ resolved })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to update resolved status');
+                }
+
+                // Reload the page to reflect changes
+                window.location.reload();
+            } catch (error) {
+                console.error('Error toggling resolved status:', error);
+                alert('Failed to update resolved status. Please try again.');
+                // Revert the checkbox
+                window.location.reload();
             }
         }
     </script>

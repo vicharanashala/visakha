@@ -413,7 +413,7 @@ app.patch("/feedback-conversations/:conversationId/resolved", async (req: Reques
 });
 
 // Endpoint to serve the HTML viewer with data loaded
-app.get("/feedback-viewer", async (req: Request, res: Response) => {
+app.get("/", async (req: Request, res: Response) => {
   try {
     const db = await connectDB();
 

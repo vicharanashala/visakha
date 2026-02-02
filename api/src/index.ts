@@ -381,7 +381,7 @@ app.get("/feedback-viewer", async (req: Request, res: Response) => {
     const db = await connectDB();
 
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = parseInt(req.query.limit as string) || 5;
     const skip = (page - 1) * limit;
 
     const pipeline = [
@@ -554,7 +554,7 @@ app.get("/feedback-viewer", async (req: Request, res: Response) => {
     const totalPages = Math.ceil(totalCount / limit);
 
     // Generate HTML with data embedded
-    const html = generateViewerHTML(result, page, totalPages, totalCount);
+    const html = generateViewerHTML(result, page, totalPages, totalCount, limit);
 
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
@@ -565,7 +565,7 @@ app.get("/feedback-viewer", async (req: Request, res: Response) => {
   }
 });
 
-function generateViewerHTML(conversations: any[], page: number, totalPages: number, total: number): string {
+function generateViewerHTML(conversations: any[], page: number, totalPages: number, total: number, limit: number): string {
   const escapeHtml = (text: string) => {
     return text
       .replace(/&/g, '&amp;')
@@ -642,6 +642,9 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         minute: '2-digit'
       });
 
+      // Count feedback messages
+      const feedbackCount = conv.messages.filter((m: any) => m.feedback).length;
+
       let messagesHTML = '';
       conv.messages.forEach((msg: any, msgIndex: number) => {
         const isUser = msg.sender === 'User';
@@ -673,15 +676,24 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         if (msg.feedback) {
           const rating = msg.feedback.rating;
           const tag = msg.feedback.tag || '';
+          const feedbackText = msg.feedback.text || '';
+          const ratingClass = rating === 'thumbsDown' ? 'negative' : rating === 'thumbsUp' ? 'positive' : '';
+          const ratingIcon = rating === 'thumbsDown' ? '👎' : rating === 'thumbsUp' ? '👍' : '';
+
           feedbackHTML = `
-            <div class="feedback-badge">
-              ${rating} ${tag ? `• ${tag}` : ''}
+            <div class="feedback-container ${ratingClass}">
+              <div class="feedback-header">
+                <span class="feedback-icon">${ratingIcon}</span>
+                <span class="feedback-rating">${escapeHtml(rating)}</span>
+                ${tag ? `<span class="feedback-tag">${escapeHtml(tag)}</span>` : ''}
+              </div>
+              ${feedbackText ? `<div class="feedback-text">${escapeHtml(feedbackText)}</div>` : ''}
             </div>
           `;
         }
 
         messagesHTML += `
-          <div class="message ${messageClass}">
+          <div class="message ${messageClass} ${msg.feedback ? 'has-feedback' : ''}">
             <div class="message-header">
               <span class="sender">${escapeHtml(msg.sender)}${msg.model ? ` (${escapeHtml(msg.model)})` : ''}</span>
               <span class="timestamp">${timestamp}</span>
@@ -697,11 +709,14 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
       conversationsHTML += `
         <div class="conversation-card">
           <div class="conversation-header clickable" onclick="toggleConversation('${convId}')">
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
               <span class="toggle-icon" id="${convId}-icon">▶</span>
               <span class="conversation-title">${escapeHtml(conv.title)}</span>
             </div>
-            <div class="conversation-meta">${createdDate}</div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span class="feedback-count">${feedbackCount} feedback${feedbackCount !== 1 ? 's' : ''}</span>
+              <span class="conversation-meta">${createdDate}</span>
+            </div>
           </div>
           <div class="conversation-id">${conv.conversationId}</div>
           <div class="messages-container collapsed" id="${convId}">
@@ -712,15 +727,41 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
     });
   }
 
+  // Generate page numbers
+  let pageNumbers = '';
+  const startPage = Math.max(1, page - 2);
+  const endPage = Math.min(totalPages, page + 2);
+
+  if (startPage > 1) {
+    pageNumbers += `<a href="/feedback-viewer?page=1&limit=${limit}"><button>1</button></a>`;
+    if (startPage > 2) {
+      pageNumbers += `<span class="ellipsis">...</span>`;
+    }
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    pageNumbers += `<a href="/feedback-viewer?page=${i}&limit=${limit}"><button class="${i === page ? 'active' : ''}">${i}</button></a>`;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      pageNumbers += `<span class="ellipsis">...</span>`;
+    }
+    pageNumbers += `<a href="/feedback-viewer?page=${totalPages}&limit=${limit}"><button>${totalPages}</button></a>`;
+  }
+
   const paginationHTML = totalPages > 0 ? `
     <div class="pagination">
-      <a href="/feedback-viewer?page=${page - 1}" ${page === 1 ? 'class="disabled"' : ''}>
-        <button ${page === 1 ? 'disabled' : ''}>Previous</button>
+      <a href="/feedback-viewer?page=${page - 1}&limit=${limit}" ${page === 1 ? 'class="disabled"' : ''}>
+        <button ${page === 1 ? 'disabled' : ''}>← Previous</button>
       </a>
-      <span class="page-info">Page ${page} of ${totalPages}</span>
-      <a href="/feedback-viewer?page=${page + 1}" ${page === totalPages ? 'class="disabled"' : ''}>
-        <button ${page === totalPages ? 'disabled' : ''}>Next</button>
+      ${pageNumbers}
+      <a href="/feedback-viewer?page=${page + 1}&limit=${limit}" ${page === totalPages ? 'class="disabled"' : ''}>
+        <button ${page === totalPages ? 'disabled' : ''}>Next →</button>
       </a>
+    </div>
+    <div class="pagination-info">
+      Showing ${(page - 1) * limit + 1}-${Math.min(page * limit, total)} of ${total} conversations
     </div>
   ` : '';
 
@@ -753,23 +794,30 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         header {
             background: white;
             padding: 24px;
-            border-radius: 4px;
+            border-radius: 8px;
             margin-bottom: 20px;
             border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
         h1 {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: 600;
             color: #333;
         }
 
         .conversation-card {
             background: white;
-            border-radius: 4px;
+            border-radius: 8px;
             padding: 20px;
             margin-bottom: 16px;
             border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            transition: box-shadow 0.2s;
+        }
+
+        .conversation-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         .conversation-header {
@@ -784,13 +832,14 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         .conversation-header.clickable {
             cursor: pointer;
             user-select: none;
+            padding: 8px;
+            margin: -8px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
         }
 
         .conversation-header.clickable:hover {
             background: #fafafa;
-            margin: -4px;
-            padding: 4px 4px 16px 4px;
-            border-radius: 4px;
         }
 
         .toggle-icon {
@@ -831,12 +880,20 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             font-size: 16px;
             font-weight: 600;
             color: #333;
-            margin-bottom: 4px;
         }
 
         .conversation-meta {
             font-size: 12px;
             color: #999;
+        }
+
+        .feedback-count {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            background: #f0f0f0;
+            padding: 4px 8px;
+            border-radius: 12px;
         }
 
         .conversation-id {
@@ -854,9 +911,14 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         }
 
         .message {
-            padding: 12px;
-            border-radius: 4px;
+            padding: 16px;
+            border-radius: 8px;
             border: 1px solid #e0e0e0;
+            transition: border-color 0.2s;
+        }
+
+        .message.has-feedback {
+            border-left: 3px solid #ffa500;
         }
 
         .message.user {
@@ -890,6 +952,7 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
         .message-content {
             font-size: 14px;
             color: #333;
+            line-height: 1.6;
         }
 
         .user-info {
@@ -898,18 +961,72 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             background: #f5f5f5;
             border-radius: 4px;
             font-size: 11px;
-            margin-top: 4px;
+            margin-top: 8px;
             color: #666;
         }
 
-        .feedback-badge {
+        .feedback-container {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+            background: #fafafa;
+        }
+
+        .feedback-container.negative {
+            border-color: #ff6b6b;
+            background: #fff5f5;
+        }
+
+        .feedback-container.positive {
+            border-color: #51cf66;
+            background: #f0fdf4;
+        }
+
+        .feedback-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .feedback-icon {
+            font-size: 18px;
+        }
+
+        .feedback-rating {
+            font-weight: 600;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .feedback-tag {
             display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
+            padding: 2px 8px;
+            background: #e0e0e0;
+            border-radius: 12px;
             font-size: 11px;
-            margin-top: 8px;
-            background: #f0f0f0;
+            font-weight: 500;
             color: #666;
+        }
+
+        .feedback-container.negative .feedback-tag {
+            background: #ffe0e0;
+            color: #c92a2a;
+        }
+
+        .feedback-container.positive .feedback-tag {
+            background: #d3f9d8;
+            color: #2b8a3e;
+        }
+
+        .feedback-text {
+            font-size: 13px;
+            color: #555;
+            font-style: italic;
+            margin-top: 4px;
+            padding-top: 8px;
+            border-top: 1px solid #e0e0e0;
         }
 
         .content-block {
@@ -933,12 +1050,14 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
             margin-top: 20px;
             padding: 16px;
             background: white;
-            border-radius: 4px;
+            border-radius: 8px;
             border: 1px solid #e0e0e0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            flex-wrap: wrap;
         }
 
         .pagination a {
@@ -949,6 +1068,11 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             pointer-events: none;
         }
 
+        .ellipsis {
+            padding: 0 8px;
+            color: #999;
+        }
+
         button {
             padding: 8px 16px;
             background: #666;
@@ -957,9 +1081,11 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             border-radius: 4px;
             font-size: 14px;
             cursor: pointer;
+            transition: background 0.2s;
+            min-width: 44px;
         }
 
-        button:hover {
+        button:hover:not(:disabled):not(.active) {
             background: #555;
         }
 
@@ -968,10 +1094,16 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
             cursor: not-allowed;
         }
 
-        .page-info {
-            font-size: 14px;
+        button.active {
+            background: #2563eb;
+            font-weight: 600;
+        }
+
+        .pagination-info {
+            text-align: center;
+            font-size: 13px;
             color: #666;
-            padding: 0 12px;
+            margin-top: 12px;
         }
 
         .empty-state {

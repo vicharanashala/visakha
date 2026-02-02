@@ -779,30 +779,30 @@ function generateViewerHTML(conversations: any[], page: number, totalPages: numb
   const endPage = Math.min(totalPages, page + 2);
 
   if (startPage > 1) {
-    pageNumbers += `<a href="/feedback-viewer?page=1&limit=${limit}"><button>1</button></a>`;
+    pageNumbers += `<a href="/?page=1&limit=${limit}"><button>1</button></a>`;
     if (startPage > 2) {
       pageNumbers += `<span class="ellipsis">...</span>`;
     }
   }
 
   for (let i = startPage; i <= endPage; i++) {
-    pageNumbers += `<a href="/feedback-viewer?page=${i}&limit=${limit}"><button class="${i === page ? 'active' : ''}">${i}</button></a>`;
+    pageNumbers += `<a href="/?page=${i}&limit=${limit}"><button class="${i === page ? 'active' : ''}">${i}</button></a>`;
   }
 
   if (endPage < totalPages) {
     if (endPage < totalPages - 1) {
       pageNumbers += `<span class="ellipsis">...</span>`;
     }
-    pageNumbers += `<a href="/feedback-viewer?page=${totalPages}&limit=${limit}"><button>${totalPages}</button></a>`;
+    pageNumbers += `<a href="/?page=${totalPages}&limit=${limit}"><button>${totalPages}</button></a>`;
   }
 
   const paginationHTML = totalPages > 0 ? `
     <div class="pagination">
-      <a href="/feedback-viewer?page=${page - 1}&limit=${limit}" ${page === 1 ? 'class="disabled"' : ''}>
+      <a href="/?page=${page - 1}&limit=${limit}" ${page === 1 ? 'class="disabled"' : ''}>
         <button ${page === 1 ? 'disabled' : ''}>← Previous</button>
       </a>
       ${pageNumbers}
-      <a href="/feedback-viewer?page=${page + 1}&limit=${limit}" ${page === totalPages ? 'class="disabled"' : ''}>
+      <a href="/?page=${page + 1}&limit=${limit}" ${page === totalPages ? 'class="disabled"' : ''}>
         <button ${page === totalPages ? 'disabled' : ''}>Next →</button>
       </a>
     </div>

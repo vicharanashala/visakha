@@ -570,10 +570,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 // Handle client-side routing, return all requests to React app
-app.get(/.*/, (req: Request, res: Response) => {
-  console.log("Catch-all route hit for:", req.url);
-  res.sendFile(path.join(staticPath, "index.html"));
-});
+
 
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -583,9 +580,283 @@ app.post("/auth/google", googleLogin);
 app.post("/auth/dev-login", devLogin);
 
 // Admin Routes (Protected)
-app.post("/admin/moderators", authenticateToken, requireSuperAdmin, addModerator);
-app.delete("/admin/moderators", authenticateToken, requireSuperAdmin, removeModerator);
-app.get("/admin/moderators", authenticateToken, requireSuperAdmin, getModerators);
+// Admin Routes (Protected)
+app.use("/admin", (req, res, next) => {
+  console.log(`[API] Admin route hit: ${req.method} ${req.path}`);
+  next();
+});
+
+app.post("/admin/moderators", (req, res, next) => {
+  console.log("[API] POST /admin/moderators hit");
+  next();
+}, authenticateToken, requireSuperAdmin, addModerator);
+
+app.delete("/admin/moderators", (req, res, next) => {
+  console.log("[API] DELETE /admin/moderators hit");
+  next();
+}, authenticateToken, requireSuperAdmin, removeModerator);
+
+app.get("/admin/moderators", (req, res, next) => {
+  console.log("[API] GET /admin/moderators hit");
+  next();
+}, authenticateToken, requireSuperAdmin, getModerators);
+
+// Knowledge Curation Routes
+// 1. Get Negative Feedback (The "Raw Data Dump" Source)
+app.get("/admin/feedback/negative", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const skip = (page - 1) * limit;
+
+    const pipeline = [
+      // Match messages with negative feedback
+      {
+        $match: {
+          "feedback.rating": 0
+        }
+      },
+      // Lookup conversation to get context
+      {
+        $lookup: {
+          from: "conversations",
+          localField: "conversationId",
+          foreignField: "conversationId",
+          as: "conversation"
+        }
+      },
+      { $unwind: "$conversation" },
+      // Sort by latest
+      { $sort: { createdAt: -1 } },
+      // Pagination
+      { $skip: skip },
+      { $limit: limit }
+    ];
+
+    const messages = await db.collection("messages").aggregate(pipeline).toArray();
+    const total = await db.collection("messages").countDocuments({ "feedback.rating": 0 });
+
+    res.json({
+      data: messages,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error("Error fetching negative feedback:", error);
+    res.status(500).json({ error: "Failed to fetch feedback" });
+  }
+});
+
+// 2. Golden Knowledge CRUD (The "Golden DB")
+// Create/Promote to Golden DB
+app.post("/admin/knowledge", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { question, answer, tags, sourceMessageId } = req.body;
+    const authReq = req as AuthRequest;
+
+    if (!question || !answer) {
+      return res.status(400).json({ error: "Question and Answer are required" });
+    }
+
+    const entry = {
+      question,
+      answer,
+      tags: tags || [],
+      sourceMessageId: sourceMessageId && typeof sourceMessageId === 'string' ? new ObjectId(sourceMessageId) : null,
+      createdBy: authReq.user?.email,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await db.collection("golden_knowledge").insertOne(entry);
+    res.json({ success: true, id: result.insertedId, ...entry });
+  } catch (error) {
+    console.error("Error creating knowledge:", error);
+    res.status(500).json({ error: "Failed to create knowledge entry" });
+  }
+});
+
+// List Golden Knowledge
+app.get("/admin/knowledge", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    // Basic search if query param exists
+    const query: any = {};
+    if (req.query.q && typeof req.query.q === 'string') {
+      query.$text = { $search: req.query.q as string };
+    }
+
+    const items = await db.collection("golden_knowledge")
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(100) // Safety limit
+      .toArray();
+
+    res.json(items);
+  } catch (error) {
+    console.error("Error fetching knowledge:", error);
+    res.status(500).json({ error: "Failed to fetch knowledge" });
+  }
+});
+
+// Update Golden Knowledge
+app.put("/admin/knowledge/:id", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { id } = req.params;
+    const { question, answer, tags } = req.body;
+
+    if (!id || typeof id !== 'string') return res.status(400).json({ error: "Invalid ID" });
+
+    const result = await db.collection("golden_knowledge").updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          question,
+          answer,
+          tags,
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) return res.status(404).json({ error: "Entry not found" });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update knowledge" });
+  }
+});
+
+// Delete Golden Knowledge
+app.delete("/admin/knowledge/:id", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { id } = req.params;
+
+    if (!id || typeof id !== 'string') return res.status(400).json({ error: "Invalid ID" });
+
+    await db.collection("golden_knowledge").deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete knowledge" });
+  }
+});
+
+// 3. RAG Synchronization (The "RAG DB")
+app.post("/admin/knowledge/sync", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+
+    // Get all golden knowledge entries
+    const goldenItems = await db.collection("golden_knowledge").find({}).toArray();
+
+    // Prepare for RAG (For now, we just copy to rag_knowledge collection)
+    const ragItems = goldenItems.map(item => ({
+      ...item,
+      syncedAt: new Date(),
+      // We can add a 'search_text' field that combines question and answer for better indexing
+      searchText: `${item.question} ${item.answer} ${item.tags ? item.tags.join(' ') : ''}`
+    }));
+
+    if (ragItems.length === 0) {
+      return res.json({ success: true, count: 0, message: "No items to sync" });
+    }
+
+    // Clear existing rag_knowledge and insert new ones
+    await db.collection("rag_knowledge").deleteMany({});
+    const result = await db.collection("rag_knowledge").insertMany(ragItems);
+
+    res.json({
+      success: true,
+      count: result.insertedCount,
+      message: "Golden knowledge successfully synced to RAG DB"
+    });
+  } catch (error) {
+    console.error("Error syncing to RAG:", error);
+    res.status(500).json({ error: "Failed to sync to RAG DB" });
+  }
+});
+
+// 4. RAG Search Test Endpoint
+app.get("/admin/knowledge/search", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { q } = req.query;
+
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ error: "Search query 'q' is required" });
+    }
+
+    const items = await db.collection("rag_knowledge")
+      .find({
+        $or: [
+          { question: new RegExp(q, 'i') },
+          { answer: new RegExp(q, 'i') },
+          { tags: new RegExp(q, 'i') }
+        ]
+      })
+      .limit(10)
+      .toArray();
+
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to search RAG DB" });
+  }
+});
+
+// 5. Statistics API
+app.get("/admin/stats", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+
+    // Total Counts
+    const totalUsers = await db.collection("users").countDocuments();
+    const totalConversations = await db.collection("conversations").countDocuments();
+    const totalMessages = await db.collection("messages").countDocuments();
+
+    // Feedback Stats
+    const thumbsUp = await db.collection("messages").countDocuments({ "feedback.rating": "thumbsUp" });
+    const thumbsDown = await db.collection("messages").countDocuments({ "feedback.rating": "thumbsDown" });
+
+    // Questions by Date (Last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const questionsByDate = await db.collection("messages").aggregate([
+      {
+        $match: {
+          sender: "User",
+          createdAt: { $gte: thirtyDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]).toArray();
+
+    res.json({
+      totals: {
+        users: totalUsers,
+        conversations: totalConversations,
+        messages: totalMessages,
+        thumbsUp,
+        thumbsDown
+      },
+      questionsTimeline: questionsByDate
+    });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ error: "Failed to fetch statistics" });
+  }
+});
 
 // Generic Database CRUD Routes (Protected: Super Admin Only)
 const ALLOWED_COLLECTIONS = ['users', 'conversations', 'messages', 'faqs'];
@@ -706,6 +977,18 @@ app.delete("/admin/db/:collection/:id", authenticateToken, requireSuperAdmin, va
 // Health check endpoint
 app.get("/health", (req: Request, res: Response) => {
   res.send("OK");
+});
+
+// Handle client-side routing, return all requests to React app
+// This must be the LAST route to ensure API routes are not shadowed
+
+
+
+// Handle client-side routing, return all requests to React app
+// This must be the LAST route to ensure API routes are not shadowed
+app.get(/.*/, (req: Request, res: Response) => {
+  console.log("Catch-all route hit for:", req.url);
+  res.sendFile(path.join(staticPath, "index.html"));
 });
 
 app.listen(PORT, "0.0.0.0", async () => {

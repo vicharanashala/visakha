@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { TeamManagement } from './pages/TeamManagement';
 import { DatabaseManagement } from './pages/DatabaseManagement';
+import { KnowledgeCuration } from './pages/KnowledgeCuration';
 import { FAQPage } from './pages/FAQPage';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -23,6 +24,7 @@ function App() {
           <Route element={<ProtectedRoute requireSuperAdmin />}>
             <Route element={<Layout><TeamManagement /></Layout>} path="/team" />
             <Route element={<Layout><DatabaseManagement /></Layout>} path="/database" />
+            <Route element={<Layout><KnowledgeCuration /></Layout>} path="/knowledge" />
             <Route element={<Layout><FAQPage /></Layout>} path="/faqs" />
           </Route>
 

@@ -30,9 +30,9 @@ export function ConversationList({
     }
 
     return (
-        <div className="w-80 border-r border-gray-200 bg-white h-full flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-                <h2 className="font-semibold text-gray-800">Inbox</h2>
+        <div className="w-80 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-brand-card h-full flex flex-col transition-colors duration-300">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="font-semibold text-gray-800 dark:text-gray-200">Inbox</h2>
             </div>
 
             <div className="flex-1 overflow-y-auto">
@@ -41,14 +41,14 @@ export function ConversationList({
                         key={conv.conversationId}
                         to={`/c/${conv.conversationId}`}
                         className={clsx(
-                            "block p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors",
-                            selectedId === conv.conversationId ? "bg-blue-50 hover:bg-blue-50" : ""
+                            "block p-4 border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-brand-surface transition-colors",
+                            selectedId === conv.conversationId ? "bg-brand-primary/10 dark:bg-brand-primary/20" : ""
                         )}
                     >
                         <div className="flex justify-between items-start mb-1">
                             <h3 className={clsx(
                                 "font-medium text-sm truncate pr-2",
-                                selectedId === conv.conversationId ? "text-blue-900" : "text-gray-900"
+                                selectedId === conv.conversationId ? "text-brand-primary dark:text-brand-primary" : "text-gray-900 dark:text-gray-100"
                             )}>
                                 {conv.title || "Untitled Conversation"}
                             </h3>
@@ -57,7 +57,7 @@ export function ConversationList({
                             )}
                         </div>
 
-                        <div className="flex justify-between items-center text-xs text-gray-500 mt-2">
+                        <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400 mt-2">
                             <span className="flex items-center gap-1">
                                 <MessageSquare size={12} />
                                 {conv.messages.length}
@@ -75,7 +75,9 @@ export function ConversationList({
                                 return (
                                     <div className={clsx(
                                         "mt-2 text-xs px-2 py-1 rounded inline-flex items-center gap-1",
-                                        isPositive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                                        isPositive
+                                            ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                                            : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                                     )}>
                                         {isPositive ? <ThumbsUp size={10} /> : <ThumbsDown size={10} />}
                                         <span className="truncate max-w-[150px]">
@@ -91,21 +93,21 @@ export function ConversationList({
             </div>
 
             {/* Pagination */}
-            <div className="p-3 border-t border-gray-200 flex justify-between items-center bg-gray-50">
+            <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-brand-card">
                 <button
                     onClick={() => onPageChange(page - 1)}
                     disabled={page === 1 || loading}
-                    className="px-2 py-1text-sm disabled:opacity-50"
+                    className="px-2 py-1 text-sm disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 >
                     Previous
                 </button>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                     Page {page} of {totalPages}
                 </span>
                 <button
                     onClick={() => onPageChange(page + 1)}
                     disabled={page === totalPages || loading}
-                    className="px-2 py-1 text-sm disabled:opacity-50"
+                    className="px-2 py-1 text-sm disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 >
                     Next
                 </button>

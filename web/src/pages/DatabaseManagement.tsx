@@ -34,9 +34,10 @@ export const DatabaseManagement = () => {
     const [jsonInput, setJsonInput] = useState('');
     const [jsonError, setJsonError] = useState<string | null>(null);
 
-    const fetchData = async () => {
-        setLoading(true);
+    const fetchData = async (silent = false) => {
+        if (!silent) setLoading(true);
         setError(null);
+        if (!silent) console.log(`Fetching data for collection: ${selectedCollection}, page: ${page}`);
         try {
             const response = await fetch(`http://localhost:3000/admin/db/${selectedCollection}?page=${page}&limit=${limit}`, {
                 headers: {
@@ -47,28 +48,53 @@ export const DatabaseManagement = () => {
             if (!response.ok) {
                 const text = await response.text();
                 console.error('Fetch error response:', text);
-                throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
+                if (response.status === 401 || response.status === 403) {
+                    setError("Unauthorized: Please log in again.");
+                } else {
+                    setError(`Error ${response.status}: ${text}`);
+                }
+                return;
             }
 
             const clone = response.clone();
             try {
                 const result = await response.json();
-                setData(result.data);
-                setTotalPages(result.totalPages);
+                if (!silent) console.log('Data received:', result);
+                if (result.data) {
+                    setData(result.data);
+                    setTotalPages(result.totalPages || 1);
+                } else {
+                    // Fallback if data is directly an array
+                    if (Array.isArray(result)) {
+                        setData(result);
+                        setTotalPages(1);
+                    } else {
+                        setData([]);
+                        setTotalPages(1);
+                    }
+                }
             } catch (e) {
                 const text = await clone.text();
+                // Check if it's HTML (the error user saw)
+                if (text.trim().startsWith('<!doctype html>') || text.trim().startsWith('<html')) {
+                    console.error('SERVER RETURNED HTML:', text.slice(0, 500)); // Log first 500 chars to identify if it's 404 or Index
+                    throw new Error('Server Returned HTML instead of JSON. Check console for details.');
+                }
+                console.error('JSON Parse Error. Response text:', text);
                 throw new Error('Invalid JSON response from server. Content: ' + text.slice(0, 100));
             }
         } catch (err) {
             console.error('Fetch error:', err);
             setError((err as Error).message);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
     useEffect(() => {
         fetchData();
+        const interval = setInterval(() => fetchData(true), 10000);
+        return () => clearInterval(interval);
     }, [selectedCollection, page, token]);
 
     const handleEdit = (item: any) => {
@@ -158,33 +184,15 @@ export const DatabaseManagement = () => {
     return (
         <div className="flex h-full bg-gray-50 dark:bg-brand-dark flex-col transition-colors duration-300">
             {/* Header */}
-            <header className="bg-white dark:bg-brand-card border-b border-gray-200 dark:border-gray-700 px-8 py-6 flex items-center justify-between transition-colors duration-300">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center">
-                        <Database className="w-8 h-8 mr-3 text-brand-primary" />
-                        Database Management
-                    </h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage your application data directly</p>
-                </div>
-                <div className="flex items-center space-x-4">
-                    <div className="relative">
-                        <select
-                            value={selectedCollection}
-                            onChange={(e) => {
-                                setSelectedCollection(e.target.value);
-                                setPage(1);
-                            }}
-                            className="appearance-none bg-white dark:bg-brand-surface border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 py-2 pl-4 pr-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-primary focus:border-transparent cursor-pointer shadow-sm transition-colors"
-                        >
-                            {COLLECTIONS.map(c => (
-                                <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
-                            ))}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500 dark:text-gray-400">
-                            <ChevronDown className="h-4 w-4" />
-                        </div>
+            <header className="bg-white dark:bg-brand-card border-b border-gray-200 dark:border-gray-700 px-8 py-6 transition-colors duration-300">
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center">
+                            <Database className="w-8 h-8 mr-3 text-brand-primary" />
+                            Database Management
+                        </h1>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage your application data directly</p>
                     </div>
-
                     <button
                         onClick={handleAddNew}
                         className="flex items-center px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-teal-700 transition-colors shadow-sm"
@@ -192,6 +200,26 @@ export const DatabaseManagement = () => {
                         <Plus className="w-5 h-5 mr-2" />
                         Add New
                     </button>
+                </div>
+
+                <div className="flex space-x-1 border-b border-gray-200 dark:border-gray-700">
+                    {COLLECTIONS.map(c => (
+                        <button
+                            key={c}
+                            onClick={() => {
+                                setSelectedCollection(c);
+                                setPage(1);
+                            }}
+                            className={`
+                                px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 
+                                ${selectedCollection === c
+                                    ? 'border-brand-primary text-brand-primary bg-brand-primary/5 dark:bg-brand-primary/10'
+                                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
+                            `}
+                        >
+                            {c.charAt(0).toUpperCase() + c.slice(1)}
+                        </button>
+                    ))}
                 </div>
             </header>
 

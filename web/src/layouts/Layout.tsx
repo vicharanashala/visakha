@@ -5,7 +5,8 @@ import {
     Users,
     Database,
     Download,
-    HelpCircle
+    HelpCircle,
+    BookOpen
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
@@ -29,6 +30,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         ...(isSuperAdmin ? [
             { name: 'Team', href: '/team', icon: Users },
             { name: 'Database', href: '/database', icon: Database },
+            { name: 'Knowledge', href: '/knowledge', icon: BookOpen },
             { name: 'FAQs', href: '/faqs', icon: HelpCircle }
         ] : []),
     ];
@@ -118,7 +120,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 ml-64">
+            <div className="flex-1 ml-64 bg-gray-50 dark:bg-brand-dark transition-colors duration-300">
                 {children}
             </div>
         </div>

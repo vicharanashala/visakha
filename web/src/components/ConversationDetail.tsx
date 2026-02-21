@@ -73,14 +73,14 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
     }
 
     return (
-        <div className="flex flex-col h-full bg-white">
+        <div className="flex flex-col h-full bg-white dark:bg-brand-card transition-colors duration-300">
             {/* Header */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-white flex justify-between items-start">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-brand-card flex justify-between items-start transition-colors">
                 <div>
-                    <h1 className="text-xl font-bold text-gray-900 mb-1">
+                    <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-1">
                         {conversation.title || 'Untitled Conversation'}
                     </h1>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                         <span className="flex items-center gap-1">
                             <Clock size={12} />
                             {format(new Date(conversation.createdAt), 'MMM d, yyyy h:mm a')}
@@ -89,7 +89,7 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
                             <MessageSquare size={12} />
                             {conversation.messages.length} messages
                         </span>
-                        <span className="font-mono text-gray-400">ID: {conversation.conversationId}</span>
+                        <span className="font-mono text-gray-400 dark:text-gray-500">ID: {conversation.conversationId}</span>
                     </div>
                 </div>
 
@@ -98,8 +98,8 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
                     className={clsx(
                         "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border",
                         conversation.resolved
-                            ? "bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                            : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                            ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/30"
+                            : "bg-gray-50 text-gray-600 border-gray-200 dark:bg-brand-surface dark:text-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-brand-surface/80"
                     )}
                 >
                     {conversation.resolved ? (
@@ -117,7 +117,7 @@ export function ConversationDetail({ conversationId }: ConversationDetailProps) 
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto bg-white">
+            <div className="flex-1 overflow-y-auto bg-white dark:bg-brand-card transition-colors">
                 {conversation.messages.map((msg: Message) => (
                     <MessageBubble key={msg.messageId} message={msg} />
                 ))}

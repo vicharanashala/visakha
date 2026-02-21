@@ -1,137 +1,184 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Trash2, Plus, UserPlus } from 'lucide-react';
+import { Trash2, Plus, UserPlus, Shield, ShieldAlert } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-interface Moderator {
+interface TeamMember {
     _id: string;
     email: string;
-    role: 'moderator';
+    role: 'moderator' | 'super_admin';
     addedBy?: string;
     createdAt: string;
 }
 
 export const TeamManagement: React.FC = () => {
-    const [moderators, setModerators] = useState<Moderator[]>([]);
+    const { user } = useAuth();
+    const [members, setMembers] = useState<TeamMember[]>([]);
     const [newEmail, setNewEmail] = useState('');
+    const [newRole, setNewRole] = useState<'moderator' | 'super_admin'>('moderator');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        fetchModerators();
+        fetchMembers();
     }, []);
 
-    const fetchModerators = async () => {
+    const fetchMembers = async () => {
         try {
             const response = await axios.get('/admin/moderators');
-            setModerators(response.data);
+            console.log('Team data received:', response.data);
+
+            if (Array.isArray(response.data)) {
+                setMembers(response.data);
+            } else {
+                console.error('Expected array but got:', typeof response.data, response.data);
+                setError('Invalid data received from server');
+                // If it's HTML, it's the catch-all route issue again
+                if (typeof response.data === 'string' && response.data.trim().startsWith('<')) {
+                    setError('Server returned HTML. API route might be missing or shadowed.');
+                }
+            }
             setLoading(false);
-        } catch (err) {
-            setError('Failed to load moderators');
+        } catch (err: any) {
+            console.error('Fetch error details:', err.response || err);
+            setError(err.response?.data?.error || 'Failed to load team members');
             setLoading(false);
         }
     };
 
-    const handleAddModerator = async (e: React.FormEvent) => {
+    const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newEmail) return;
 
         try {
-            await axios.post('/admin/moderators', { email: newEmail });
+            await axios.post('/admin/moderators', { email: newEmail, role: newRole });
             setNewEmail('');
-            fetchModerators();
+            setNewRole('moderator'); // Reset to default
+            fetchMembers();
         } catch (err: any) {
-            setError(err.response?.data?.error || 'Failed to add moderator');
+            setError(err.response?.data?.error || 'Failed to add member');
         }
     };
 
-    const handleRemoveModerator = async (email: string) => {
+    const handleRemoveMember = async (email: string) => {
+        if (email === user?.email) {
+            alert("You cannot remove your own account.");
+            return;
+        }
+
         if (!confirm(`Are you sure you want to remove ${email}?`)) return;
 
         try {
             await axios.delete('/admin/moderators', { data: { email } });
-            fetchModerators();
-        } catch (err) {
-            setError('Failed to remove moderator');
+            fetchMembers();
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Failed to remove member');
         }
     };
 
     if (loading) return <div className="p-8">Loading team data...</div>;
 
     return (
-        <div className="p-8 max-w-4xl mx-auto">
-            <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
+        <div className="p-8 max-w-4xl mx-auto h-full flex flex-col">
+            <h1 className="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-900 dark:text-gray-100">
                 <UserPlus className="w-6 h-6" />
                 Team Management
             </h1>
 
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-                <h2 className="text-lg font-semibold mb-4">Add Moderator</h2>
-                <form onSubmit={handleAddModerator} className="flex gap-4">
+            <div className="bg-white dark:bg-brand-card rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-8 transition-colors">
+                <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Add Team Member</h2>
+                <form onSubmit={handleAddMember} className="flex flex-col sm:flex-row gap-4">
                     <input
                         type="email"
                         value={newEmail}
                         onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="Enter moderator email address"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter email address"
+                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-primary focus:border-transparent bg-white dark:bg-brand-surface text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+                        required
                     />
+                    <select
+                        value={newRole}
+                        onChange={(e) => setNewRole(e.target.value as 'moderator' | 'super_admin')}
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-brand-primary focus:border-transparent bg-white dark:bg-brand-surface text-gray-900 dark:text-gray-100"
+                    >
+                        <option value="moderator">Moderator</option>
+                        <option value="super_admin">Super Admin</option>
+                    </select>
                     <button
                         type="submit"
-                        className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2"
+                        className="px-6 py-2 bg-brand-primary text-white rounded-md hover:bg-brand-primary/90 flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
                     >
                         <Plus className="w-4 h-4" />
-                        Add
+                        Add Member
                     </button>
                 </form>
-                {error && <p className="text-red-600 mt-2 text-sm">{error}</p>}
+                {error && <p className="text-red-600 dark:text-red-400 mt-2 text-sm">{error}</p>}
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                    <h2 className="text-lg font-semibold">Current Moderators</h2>
+            <div className="bg-white dark:bg-brand-card rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors flex-1 flex flex-col">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-brand-surface/50">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Current Team Members</h2>
                 </div>
 
-                {moderators.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
-                        No moderators added yet.
-                    </div>
-                ) : (
-                    <table className="w-full">
-                        <thead>
-                            <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                                <th className="px-6 py-3">Email</th>
-                                <th className="px-6 py-3">Role</th>
-                                <th className="px-6 py-3">Added By</th>
-                                <th className="px-6 py-3">Date Added</th>
-                                <th className="px-6 py-3 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                            {moderators.map((mod) => (
-                                <tr key={mod._id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{mod.email}</td>
-                                    <td className="px-6 py-4 text-sm text-gray-500">
-                                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
-                                            Moderator
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-gray-500">{mod.addedBy || 'System'}</td>
-                                    <td className="px-6 py-4 text-sm text-gray-500">
-                                        {new Date(mod.createdAt).toLocaleDateString()}
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button
-                                            onClick={() => handleRemoveModerator(mod.email)}
-                                            className="text-red-600 hover:text-red-900 p-2 rounded-full hover:bg-red-50"
-                                            title="Remove Moderator"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </td>
+                <div className="overflow-auto flex-1">
+                    {members.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                            No members found.
+                        </div>
+                    ) : (
+                        <table className="w-full">
+                            <thead className="sticky top-0 bg-gray-50 dark:bg-brand-surface/90 backdrop-blur-sm z-10">
+                                <tr className="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    <th className="px-6 py-3">Email</th>
+                                    <th className="px-6 py-3">Role</th>
+                                    <th className="px-6 py-3">Added By</th>
+                                    <th className="px-6 py-3">Date Added</th>
+                                    <th className="px-6 py-3 text-right">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                {members.map((member) => (
+                                    <tr key={member._id} className="hover:bg-gray-50 dark:hover:bg-brand-surface/30 transition-colors">
+                                        <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                            {member.email}
+                                            {member.email === user?.email && (
+                                                <span className="ml-2 text-xs text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded-full">You</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold gap-1
+                                                ${member.role === 'super_admin'
+                                                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300'
+                                                    : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                                                }`}
+                                            >
+                                                {member.role === 'super_admin' ? <ShieldAlert size={12} /> : <Shield size={12} />}
+                                                {member.role === 'super_admin' ? 'Super Admin' : 'Moderator'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{member.addedBy || 'System'}</td>
+                                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                            {new Date(member.createdAt).toLocaleDateString()}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button
+                                                onClick={() => handleRemoveMember(member.email)}
+                                                disabled={member.email === user?.email}
+                                                className={`p-2 rounded-full transition-colors ${member.email === user?.email
+                                                    ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+                                                    : 'text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20'
+                                                    }`}
+                                                title={member.email === user?.email ? "You cannot remove yourself" : "Remove Member"}
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
             </div>
         </div>
     );

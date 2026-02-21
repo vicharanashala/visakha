@@ -128,21 +128,26 @@ export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFun
     next();
 }
 
-// Get Moderators
+// Get Team Members (Moderators & Super Admins)
 export async function getModerators(req: Request, res: Response) {
     try {
         const db = await connectDB();
-        const moderators = await db.collection('admin_users').find({ role: 'moderator' }).toArray();
-        res.json(moderators);
+        // Fetch all admin users
+        const members = await db.collection('admin_users').find({}).toArray();
+        res.json(members);
     } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch moderators' });
+        res.status(500).json({ error: 'Failed to fetch team members' });
     }
 }
 
-// Add Moderator
+// Add Team Member
 export async function addModerator(req: AuthRequest, res: Response) {
-    const { email } = req.body;
+    const { email, role } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
+
+    // Validate role
+    const validRoles = ['moderator', 'super_admin'];
+    const assignedRole = role && validRoles.includes(role) ? role : 'moderator';
 
     try {
         const db = await connectDB();
@@ -152,27 +157,37 @@ export async function addModerator(req: AuthRequest, res: Response) {
 
         await db.collection('admin_users').insertOne({
             email,
-            role: 'moderator',
+            role: assignedRole,
             addedBy: req.user?.email,
             createdAt: new Date()
         });
 
-        res.json({ success: true, email });
+        res.json({ success: true, email, role: assignedRole });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to add moderator' });
+        res.status(500).json({ error: 'Failed to add member' });
     }
 }
 
-// Remove Moderator
-export async function removeModerator(req: Request, res: Response) {
+// Remove Team Member
+export async function removeModerator(req: AuthRequest, res: Response) {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
 
+    // Prevent self-deletion
+    if (email === req.user?.email) {
+        return res.status(400).json({ error: 'You cannot remove your own account' });
+    }
+
     try {
         const db = await connectDB();
-        await db.collection('admin_users').deleteOne({ email, role: 'moderator' });
+
+        // Check if user exists first
+        const user = await db.collection('admin_users').findOne({ email });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        await db.collection('admin_users').deleteOne({ email });
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to remove moderator' });
+        res.status(500).json({ error: 'Failed to remove member' });
     }
 }

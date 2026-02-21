@@ -13,19 +13,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
     return (
         <div className={clsx(
-            "flex gap-4 p-6 border-b border-gray-100",
-            isUser ? "bg-white" : "bg-gray-50/50"
+            "flex gap-4 p-6 border-b border-gray-100 dark:border-gray-700/50 trantision-colors",
+            isUser ? "bg-white dark:bg-brand-card" : "bg-gray-50/50 dark:bg-gray-800/10"
         )}>
             <div className={clsx(
                 "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1",
-                isUser ? "bg-gray-200 text-gray-600" : "bg-blue-600 text-white"
+                isUser ? "bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300" : "bg-brand-primary text-white"
             )}>
                 {isUser ? <User size={16} /> : <Bot size={16} />}
             </div>
 
             <div className="flex-1 overflow-hidden">
                 <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-sm text-gray-900">
+                    <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
                         {isUser ? (message.user?.name || "User") : (message.model || "Model")}
                     </span>
                     <span className="text-xs text-gray-400">
@@ -33,7 +33,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                     </span>
                 </div>
 
-                <div className="text-sm text-gray-800 leading-relaxed space-y-2">
+                <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed space-y-2">
                     {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
 
                     {message.content && (
@@ -51,15 +51,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                     <div className={clsx(
                         "mt-4 p-3 rounded-lg border text-sm inline-block",
                         message.feedback.rating === 'thumbsUp'
-                            ? "bg-green-50 border-green-200 text-green-800"
-                            : "bg-red-50 border-red-200 text-red-800"
+                            ? "bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-900/30 dark:text-green-400"
+                            : "bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-900/30 dark:text-red-400"
                     )}>
                         <div className="flex items-center gap-2 font-medium">
                             {message.feedback.rating === 'thumbsUp' ? <ThumbsUp size={14} /> : <ThumbsDown size={14} />}
                             <span>{message.feedback.tag || (message.feedback.rating === 'thumbsUp' ? 'Positive' : 'Negative')}</span>
                         </div>
                         {message.feedback.text && (
-                            <p className="mt-1 text-xs opacity-90 border-t border-black/10 pt-2">
+                            <p className="mt-1 text-xs opacity-90 border-t border-black/10 dark:border-white/10 pt-2">
                                 "{message.feedback.text}"
                             </p>
                         )}
@@ -79,10 +79,10 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     if (block.type === 'think') {
         return (
-            <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-brand-card">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-600"
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-brand-surface/50 hover:bg-gray-100 dark:hover:bg-brand-surface transition-colors text-xs font-medium text-gray-600 dark:text-gray-300"
                 >
                     {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     <Brain size={14} className="text-purple-500" />
@@ -90,7 +90,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
                 </button>
 
                 {isExpanded && (
-                    <div className="p-3 bg-gray-50/50 text-gray-600 font-mono text-xs whitespace-pre-wrap border-t border-gray-200">
+                    <div className="p-3 bg-gray-50/50 dark:bg-brand-surface/10 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-pre-wrap border-t border-gray-200 dark:border-gray-700">
                         {block.think}
                     </div>
                 )}
@@ -100,13 +100,13 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     if (block.type === 'tool_call') {
         return (
-            <div className="rounded-lg border border-gray-200 overflow-hidden bg-white my-2">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-brand-card my-2">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-xs font-medium text-gray-700"
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-brand-surface/50 hover:bg-gray-100 dark:hover:bg-brand-surface transition-colors text-xs font-medium text-gray-700 dark:text-gray-300"
                 >
                     {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    <Terminal size={14} className="text-gray-500" />
+                    <Terminal size={14} className="text-gray-500 dark:text-gray-400" />
                     <span className="font-mono">{block.tool_call?.name || 'Tool Call'}</span>
                 </button>
 

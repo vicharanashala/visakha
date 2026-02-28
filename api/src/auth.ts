@@ -137,10 +137,17 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) return res.sendStatus(401);
+    if (!token) {
+        console.log('[AUTH] No token provided');
+        return res.sendStatus(401);
+    }
 
     jwt.verify(token, getJwtSecret(), (err: any, user: any) => {
-        if (err) return res.sendStatus(403);
+        if (err) {
+            console.log('[AUTH] Token verification failed:', err.message);
+            return res.sendStatus(403);
+        }
+        console.log('[AUTH] Token verified for:', user.email, 'Role:', user.role);
         req.user = user;
         next();
     });
@@ -148,7 +155,9 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 
 // Middleware to require Super Admin
 export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+    console.log('[AUTH] Checking Super Admin for:', req.user?.email, 'Role:', req.user?.role);
     if (req.user?.role !== 'super_admin') {
+        console.log('[AUTH] Access denied: User is not super_admin');
         return res.status(403).json({ error: 'Requires Super Admin privileges' });
     }
     next();

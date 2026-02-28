@@ -547,32 +547,6 @@ app.get("/conversations/export", async (req: Request, res: Response) => {
 // Endpoint to serve the HTML viewer with data loaded
 
 
-import fs from 'fs';
-
-const staticPath = path.join(__dirname, "../../web/dist");
-// Serve static files from the React app
-app.use(express.static(staticPath));
-
-// Explicit route for root
-app.get("/", (req: Request, res: Response) => {
-  const indexPath = path.join(staticPath, "index.html");
-
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error("Error sending file:", err);
-        res.status(500).send("Error sending index.html");
-      }
-    });
-  } else {
-    res.status(404).send("index.html not found");
-  }
-});
-
-// Handle client-side routing, return all requests to React app
-
-
-
 const PORT = Number(process.env.PORT) || 3000;
 
 // Auth Routes
@@ -583,6 +557,8 @@ app.post("/auth/dev-login", devLogin);
 app.post("/admin/moderators", authenticateToken, requireSuperAdmin, addModerator);
 app.delete("/admin/moderators", authenticateToken, requireSuperAdmin, removeModerator);
 app.get("/admin/moderators", authenticateToken, requireSuperAdmin, getModerators);
+
+// Knowledge Curation Routes
 
 // Knowledge Curation Routes
 // 1. Get Negative Feedback (The "Raw Data Dump" Source)
@@ -597,7 +573,7 @@ app.get("/admin/feedback/negative", authenticateToken, requireSuperAdmin, async 
       // Match messages with negative feedback
       {
         $match: {
-          "feedback.rating": 0
+          "feedback.rating": "thumbsDown"
         }
       },
       // Lookup conversation to get context
@@ -618,7 +594,8 @@ app.get("/admin/feedback/negative", authenticateToken, requireSuperAdmin, async 
     ];
 
     const messages = await db.collection("messages").aggregate(pipeline).toArray();
-    const total = await db.collection("messages").countDocuments({ "feedback.rating": 0 });
+    console.log(`[DEBUG] Negative feedback results: ${messages.length}`);
+    const total = await db.collection("messages").countDocuments({ "feedback.rating": "thumbsDown" });
 
     res.json({
       data: messages,
@@ -962,16 +939,30 @@ app.get("/health", (req: Request, res: Response) => {
   res.send("OK");
 });
 
+// --- Static and Catch-all Routes (MUST BE LAST) ---
+import fs from 'fs';
+const staticPath = path.join(__dirname, "../../web/dist");
+
+// Serve static files from the React app
+app.use(express.static(staticPath));
+
 // Handle client-side routing, return all requests to React app
-// This must be the LAST route to ensure API routes are not shadowed
-
-
-
-// Handle client-side routing, return all requests to React app
-// This must be the LAST route to ensure API routes are not shadowed
 app.get(/.*/, (req: Request, res: Response) => {
-  console.log("Catch-all route hit for:", req.url);
-  res.sendFile(path.join(staticPath, "index.html"));
+  const filePath = path.join(staticPath, req.path);
+
+  // If it's a specific file request that wasn't caught by express.static, 
+  // or if it's a route request, check if the file exists or send index.html
+  if (req.path !== '/' && fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    return res.sendFile(filePath);
+  }
+
+  // Default to index.html for SPA routing
+  const indexPath = path.join(staticPath, "index.html");
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send("index.html not found. Please build the frontend.");
+  }
 });
 
 app.listen(PORT, "0.0.0.0", async () => {

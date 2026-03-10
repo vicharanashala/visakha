@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Message, ContentBlock } from '../types';
 import { format } from 'date-fns';
-import { User, Bot, ChevronDown, ChevronRight, Terminal, Brain, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Terminal, Brain, ThumbsUp, ThumbsDown, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 
 interface MessageBubbleProps {
@@ -36,15 +36,21 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 <div className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed space-y-2">
                     {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
 
-                    {message.content && (
-                        typeof message.content === 'string'
-                            ? <p className="whitespace-pre-wrap">{message.content}</p>
-                            : <div className="space-y-4">
-                                {(message.content as ContentBlock[]).map((block, idx) => (
-                                    <ContentBlockRenderer key={idx} block={block} />
+                    {message.content && (() => {
+                        const blocks = parseContent(message.content);
+                        const hasThink = blocks.some(b => b.type === 'think');
+                        return (
+                            <div className="space-y-4">
+                                {blocks.map((block, idx) => (
+                                    <ContentBlockRenderer
+                                        key={idx}
+                                        block={block}
+                                        showLabel={hasThink && block.type === 'text'}
+                                    />
                                 ))}
                             </div>
-                    )}
+                        );
+                    })()}
                 </div>
 
                 {message.feedback && (
@@ -56,7 +62,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                     )}>
                         <div className="flex items-center gap-2 font-medium">
                             {message.feedback.rating === 'thumbsUp' ? <ThumbsUp size={14} /> : <ThumbsDown size={14} />}
-                            <span>{message.feedback.tag || (message.feedback.rating === 'thumbsUp' ? 'Positive' : 'Negative')}</span>
+                            <span>{message.feedback.tag || (message.feedback.rating === 'thumbsUp' ? 'Helpful' : 'Needs Improvement')}</span>
                         </div>
                         {message.feedback.text && (
                             <p className="mt-1 text-xs opacity-90 border-t border-black/10 dark:border-white/10 pt-2">
@@ -70,27 +76,77 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     );
 }
 
-function ContentBlockRenderer({ block }: { block: ContentBlock }) {
+function parseContent(content: string | ContentBlock[]): ContentBlock[] {
+    const blocks: ContentBlock[] = [];
+
+    // Normalize input to array of blocks
+    const initialBlocks: ContentBlock[] = Array.isArray(content)
+        ? content
+        : [{ type: 'text', text: content }];
+
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+
+    for (const block of initialBlocks) {
+        if (block.type === 'text' && block.text) {
+            let lastIndex = 0;
+            let match;
+            const text = block.text;
+
+            while ((match = thinkRegex.exec(text)) !== null) {
+                if (match.index > lastIndex) {
+                    const segment = text.slice(lastIndex, match.index).trim();
+                    if (segment) blocks.push({ type: 'text', text: segment });
+                }
+                blocks.push({ type: 'think', think: match[1].trim() });
+                lastIndex = thinkRegex.lastIndex;
+            }
+
+            if (lastIndex < text.length) {
+                const segment = text.slice(lastIndex).trim();
+                if (segment) blocks.push({ type: 'text', text: segment });
+            }
+        } else {
+            // Keep tool_calls and existing think blocks as they are
+            blocks.push(block);
+        }
+    }
+
+    return blocks;
+}
+
+function ContentBlockRenderer({ block, showLabel }: { block: ContentBlock, showLabel?: boolean }) {
     const [isExpanded, setIsExpanded] = useState(false);
 
     if (block.type === 'text') {
-        return <p className="whitespace-pre-wrap">{block.text}</p>;
+        return (
+            <div className="space-y-2">
+                {showLabel && (
+                    <div className="flex items-center gap-2 text-xs font-semibold text-brand-primary dark:text-brand-primary/80 uppercase tracking-wider mb-1 mt-4">
+                        <MessageSquare size={12} />
+                        <span>Response</span>
+                    </div>
+                )}
+                <p className="whitespace-pre-wrap">{block.text}</p>
+            </div>
+        );
     }
 
     if (block.type === 'think') {
         return (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-brand-card">
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700/50 overflow-hidden bg-gray-50/50 dark:bg-brand-surface/20 transition-all">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-brand-surface/50 hover:bg-gray-100 dark:hover:bg-brand-surface transition-colors text-xs font-medium text-gray-600 dark:text-gray-300"
+                    className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-100/50 dark:hover:bg-brand-surface/30 transition-colors text-xs font-medium text-gray-500 dark:text-gray-400"
                 >
+                    <div className="flex items-center gap-2">
+                        <Brain size={14} className="text-purple-400 dark:text-purple-500" />
+                        <span>{isExpanded ? 'Hide Thinking Process' : 'Show Thinking Process'}</span>
+                    </div>
                     {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    <Brain size={14} className="text-purple-500" />
-                    <span>Thinking Process</span>
                 </button>
 
                 {isExpanded && (
-                    <div className="p-3 bg-gray-50/50 dark:bg-brand-surface/10 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-pre-wrap border-t border-gray-200 dark:border-gray-700">
+                    <div className="px-4 py-3 bg-white/50 dark:bg-brand-dark/20 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-pre-wrap border-t border-gray-100 dark:border-gray-700/50 leading-relaxed italic">
                         {block.think}
                     </div>
                 )}
@@ -100,7 +156,7 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     if (block.type === 'tool_call') {
         return (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-brand-card my-2">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-brand-card my-2 shadow-sm">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
                     className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-brand-surface/50 hover:bg-gray-100 dark:hover:bg-brand-surface transition-colors text-xs font-medium text-gray-700 dark:text-gray-300"

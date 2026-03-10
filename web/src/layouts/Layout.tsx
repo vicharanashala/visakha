@@ -3,7 +3,6 @@ import {
     LayoutDashboard,
     LogOut,
     Users,
-    Database,
     Download,
     HelpCircle,
     BookOpen
@@ -29,7 +28,6 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         { name: 'Dashboard', href: '/', icon: LayoutDashboard },
         ...(isSuperAdmin ? [
             { name: 'Team', href: '/team', icon: Users },
-            { name: 'Database', href: '/database', icon: Database },
             { name: 'Knowledge', href: '/knowledge', icon: BookOpen },
             { name: 'FAQs', href: '/faqs', icon: HelpCircle }
         ] : []),

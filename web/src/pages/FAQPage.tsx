@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
     Plus,
@@ -8,7 +8,11 @@ import {
     Save,
     Loader2,
     AlertCircle,
-    HelpCircle
+    HelpCircle,
+    Upload,
+    Search,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react';
 
 interface FAQ {
@@ -23,6 +27,11 @@ export const FAQPage = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Filter & Pagination State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -33,7 +42,8 @@ export const FAQPage = () => {
         setError(null);
         try {
             // Using the generic DB endpoint for faqs collection
-            const response = await fetch('http://localhost:3000/admin/db/faqs', {
+            // Increased limit to 200 to ensure all 98+ are visible for now
+            const response = await fetch('http://localhost:3000/admin/db/faqs?limit=200', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -54,6 +64,25 @@ export const FAQPage = () => {
     useEffect(() => {
         fetchFAQs();
     }, [token]);
+
+    // Derived Data
+    const filteredFaqs = useMemo(() => {
+        return faqs.filter(faq =>
+            faq.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            faq.answer.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [faqs, searchTerm]);
+
+    const totalPages = Math.ceil(filteredFaqs.length / itemsPerPage);
+    const paginatedFaqs = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return filteredFaqs.slice(start, start + itemsPerPage);
+    }, [filteredFaqs, currentPage, itemsPerPage]);
+
+    // Reset page when search changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, itemsPerPage]);
 
     const handleEdit = (faq: FAQ) => {
         setEditingId(faq._id);
@@ -112,10 +141,47 @@ export const FAQPage = () => {
         }
     };
 
+    const handleBulkReplace = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!window.confirm('This will DELETE all current FAQs and replace them with the contents of this file. Continue?')) {
+            e.target.value = '';
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const text = await file.text();
+            const response = await fetch('http://localhost:3000/admin/db/faqs/bulk-replace', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ markdown: text })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to bulk replace FAQs');
+            }
+
+            const result = await response.json();
+            alert(`Successfully imported ${result.count} FAQs.`);
+            fetchFAQs();
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setLoading(false);
+            e.target.value = '';
+        }
+    };
+
     return (
         <div className="flex h-full bg-gray-50 dark:bg-brand-dark flex-col transition-colors duration-300">
             {/* Header */}
-            <header className="bg-white dark:bg-brand-card border-b border-gray-200 dark:border-gray-700 px-8 py-6 flex items-center justify-between transition-colors duration-300">
+            <header className="bg-white dark:bg-brand-card border-b border-gray-200 dark:border-gray-700 px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors duration-300">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center">
                         <HelpCircle className="w-8 h-8 mr-3 text-brand-primary" />
@@ -123,13 +189,37 @@ export const FAQPage = () => {
                     </h1>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage frequently asked questions for your users</p>
                 </div>
-                <button
-                    onClick={handleAddNew}
-                    className="flex items-center px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-teal-700 transition-colors shadow-sm"
-                >
-                    <Plus className="w-5 h-5 mr-2" />
-                    Add FAQ
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Search Bar */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Search questions..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10 pr-4 py-2 bg-gray-50 dark:bg-brand-surface border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-transparent text-sm transition-all w-64"
+                        />
+                    </div>
+
+                    <label className="flex items-center px-4 py-2 bg-white dark:bg-brand-surface text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors shadow-sm cursor-pointer text-sm">
+                        <Upload className="w-4 h-4 mr-2" />
+                        Bulk Replace (.md)
+                        <input
+                            type="file"
+                            accept=".md"
+                            className="hidden"
+                            onChange={handleBulkReplace}
+                        />
+                    </label>
+                    <button
+                        onClick={handleAddNew}
+                        className="flex items-center px-4 py-2 bg-brand-primary text-white rounded-md hover:bg-teal-700 transition-colors shadow-sm text-sm"
+                    >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add FAQ
+                    </button>
+                </div>
             </header>
 
             {/* Content */}
@@ -146,44 +236,91 @@ export const FAQPage = () => {
                         <Loader2 className="w-10 h-10 text-brand-primary animate-spin" />
                     </div>
                 ) : (
-                    <div className="grid gap-6">
-                        {faqs.map((faq) => (
-                            <div key={faq._id} className="bg-white dark:bg-brand-card rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all hover:shadow-md dark:hover:border-gray-600">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex-1 pr-4">
-                                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{faq.question || 'No Question'}</h3>
-                                        <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{faq.answer || 'No Answer'}</p>
-                                    </div>
-                                    <div className="flex space-x-2 flex-shrink-0">
-                                        <button
-                                            onClick={() => handleEdit(faq)}
-                                            className="text-gray-400 hover:text-brand-primary dark:hover:text-brand-primary p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-full transition-colors"
-                                            title="Edit"
-                                        >
-                                            <Pencil className="w-5 h-5" />
-                                        </button>
-                                        <button
-                                            onClick={() => handleDelete(faq._id)}
-                                            className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-full transition-colors"
-                                            title="Delete"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
+                    <div className="max-w-6xl mx-auto space-y-6">
+                        <div className="grid gap-6">
+                            {paginatedFaqs.map((faq) => (
+                                <div key={faq._id} className="bg-white dark:bg-brand-card rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all hover:shadow-md dark:hover:border-gray-600">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1 pr-4">
+                                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{faq.question || 'No Question'}</h3>
+                                            <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{faq.answer || 'No Answer'}</p>
+                                        </div>
+                                        <div className="flex space-x-2 flex-shrink-0">
+                                            <button
+                                                onClick={() => handleEdit(faq)}
+                                                className="text-gray-400 hover:text-brand-primary dark:hover:text-brand-primary p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-full transition-colors"
+                                                title="Edit"
+                                            >
+                                                <Pencil className="w-5 h-5" />
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(faq._id)}
+                                                className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-full transition-colors"
+                                                title="Delete"
+                                            >
+                                                <Trash2 className="w-5 h-5" />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
 
-                        {faqs.length === 0 && !loading && (
-                            <div className="text-center py-12 bg-white dark:bg-brand-card rounded-lg border border-dashed border-gray-300 dark:border-gray-700 transition-colors duration-300">
-                                <HelpCircle className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                                <p className="text-gray-500 dark:text-gray-400 text-lg">No FAQs found.</p>
-                                <button
-                                    onClick={handleAddNew}
-                                    className="mt-2 text-brand-primary hover:text-teal-700 font-medium"
-                                >
-                                    Create your first FAQ
-                                </button>
+                            {filteredFaqs.length === 0 && !loading && (
+                                <div className="text-center py-20 bg-white dark:bg-brand-card rounded-lg border border-dashed border-gray-300 dark:border-gray-700 transition-colors duration-300">
+                                    <HelpCircle className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                                    <p className="text-gray-500 dark:text-gray-400 text-lg">
+                                        {searchTerm ? `No FAQs found matching "${searchTerm}"` : "No FAQs found."}
+                                    </p>
+                                    {!searchTerm && (
+                                        <button
+                                            onClick={handleAddNew}
+                                            className="mt-2 text-brand-primary hover:text-teal-700 font-medium"
+                                        >
+                                            Create your first FAQ
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Pagination Controls */}
+                        {filteredFaqs.length > 0 && (
+                            <div className="bg-white dark:bg-brand-card border border-gray-200 dark:border-gray-700 rounded-lg p-4 flex flex-col sm:flex-row items-center justify-between gap-4 transition-colors duration-300">
+                                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                                    <span>Show</span>
+                                    <select
+                                        value={itemsPerPage}
+                                        onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                                        className="bg-gray-50 dark:bg-brand-surface border border-gray-200 dark:border-gray-600 rounded px-2 py-1 focus:ring-1 focus:ring-brand-primary outline-none"
+                                    >
+                                        <option value={5}>5</option>
+                                        <option value={10}>10</option>
+                                        <option value={25}>25</option>
+                                    </select>
+                                    <span>per page</span>
+                                    <span className="mx-2">|</span>
+                                    <span>Total: {filteredFaqs.length} items</span>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="p-2 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronLeft className="w-5 h-5" />
+                                    </button>
+                                    <div className="flex items-center px-4 py-1.5 bg-gray-50 dark:bg-brand-surface border border-gray-200 dark:border-gray-600 rounded-md text-sm font-medium">
+                                        Page {currentPage} of {totalPages || 1}
+                                    </div>
+                                    <button
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage >= totalPages}
+                                        className="p-2 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <ChevronRight className="w-5 h-5" />
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>

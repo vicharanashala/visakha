@@ -71,17 +71,17 @@ export function ConversationList({
                         {(() => {
                             const lastFeedbackMsg = [...conv.messages].reverse().find(m => m.feedback);
                             if (lastFeedbackMsg?.feedback) {
-                                const isPositive = lastFeedbackMsg.feedback.rating === 'thumbsUp';
+                                const isHelpful = lastFeedbackMsg.feedback.rating === 'thumbsUp';
                                 return (
                                     <div className={clsx(
                                         "mt-2 text-xs px-2 py-1 rounded inline-flex items-center gap-1",
-                                        isPositive
+                                        isHelpful
                                             ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
                                             : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
                                     )}>
-                                        {isPositive ? <ThumbsUp size={10} /> : <ThumbsDown size={10} />}
+                                        {isHelpful ? <ThumbsUp size={10} /> : <ThumbsDown size={10} />}
                                         <span className="truncate max-w-[150px]">
-                                            {lastFeedbackMsg.feedback.tag || (isPositive ? 'Positive' : 'Negative')}
+                                            {lastFeedbackMsg.feedback.tag || (isHelpful ? 'Helpful' : 'Needs Improvement')}
                                         </span>
                                     </div>
                                 );

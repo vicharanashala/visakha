@@ -37,205 +37,153 @@ app.get("/feedback-conversations", async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const filter = req.query.filter as string || 'all';
+    const searchQuery = req.query.q as string || '';
     const skip = (page - 1) * limit;
 
-    const matchStage: any = { feedback: { $exists: true } };
+    const pipeline: any[] = [];
 
-    if (filter === 'thumbsUp') {
-      matchStage["feedback.rating"] = "thumbsUp";
-    } else if (filter === 'thumbsDown') {
-      matchStage["feedback.rating"] = "thumbsDown";
-    } else if (filter === 'unanswered') {
-      matchStage["feedback.tag"] = "not_matched";
-    }
-
-    const pipeline = [
-      // 1. Match messages with feedback and filter if necessary
-      {
-        $match: matchStage
-      },
-
-      // 2. Group by conversationId to get unique conversations
-      {
-        $group: {
-          _id: "$conversationId",
-          latestFeedbackDate: { $max: "$updatedAt" }
-        }
-      },
-
-      // 3. Lookup the conversation details
-      {
-        $lookup: {
-          from: "conversations",
-          localField: "_id",
-          foreignField: "conversationId",
-          as: "conversation"
-        }
-      },
-      { $unwind: "$conversation" },
-
-      // 4. Lookup all messages for this conversation
-      {
+    // 1. Initial Match for Search (if provided)
+    if (searchQuery) {
+      pipeline.push({
         $lookup: {
           from: "messages",
-          let: { messageIds: "$conversation.messages" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $in: ["$_id", "$$messageIds"]
-                }
-              }
-            },
-            { $sort: { createdAt: 1 } } // Sort messages chronologically
-          ],
+          localField: "conversationId",
+          foreignField: "conversationId",
+          as: "allMessages"
+        }
+      });
+
+      pipeline.push({
+        $match: {
+          $or: [
+            { title: { $regex: searchQuery, $options: 'i' } },
+            { "allMessages.text": { $regex: searchQuery, $options: 'i' } }
+          ]
+        }
+      });
+    }
+
+    // 2. Filter by feedback type if requested
+    if (filter !== 'all') {
+      const messageMatch: any = { feedback: { $exists: true } };
+      if (filter === 'thumbsUp') messageMatch["feedback.rating"] = "thumbsUp";
+      else if (filter === 'thumbsDown') messageMatch["feedback.rating"] = "thumbsDown";
+      else if (filter === 'unanswered') messageMatch["feedback.tag"] = "not_matched";
+
+      // If we haven't looked up messages yet (no search query), do it now
+      if (!searchQuery) {
+        pipeline.push({
+          $lookup: {
+            from: "messages",
+            localField: "conversationId",
+            foreignField: "conversationId",
+            as: "allMessages"
+          }
+        });
+      }
+
+      pipeline.push({
+        $match: {
+          allMessages: { $elemMatch: messageMatch }
+        }
+      });
+    }
+
+    // 3. Sort and Paginate
+    pipeline.push({ $sort: { updatedAt: -1 } });
+
+    // Copy pipeline for count before skipping/limiting
+    const countPipeline = [...pipeline, { $count: "total" }];
+
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    // 4. Final Lookup for detailed message data (if not already present or needs specific structure)
+    // Actually, we already have allMessages from the steps above if search or filter was used.
+    // Let's ensure consistency by creating 'messagesData' from it.
+    if (searchQuery || filter !== 'all') {
+      pipeline.push({
+        $addFields: { messagesData: "$allMessages" }
+      });
+    } else {
+      pipeline.push({
+        $lookup: {
+          from: "messages",
+          localField: "conversationId",
+          foreignField: "conversationId",
           as: "messagesData"
         }
-      },
+      });
+    }
 
-      // 5. Lookup user data for User messages
-      {
-        $lookup: {
-          from: "users",
-          let: {
-            userIds: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: "$messagesData",
-                    as: "msg",
-                    cond: { $eq: ["$$msg.sender", "User"] }
-                  }
-                },
-                as: "msg",
-                in: "$$msg.user"
-              }
-            }
-          },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $in: [
-                    { $toString: "$_id" },
-                    "$$userIds"
-                  ]
-                }
-              }
-            }
-          ],
-          as: "usersData"
-        }
-      },
-
-      // 6. Project the final structure
-      {
-        $project: {
-          _id: "$conversation._id",
-          conversationId: "$conversation.conversationId",
-          title: "$conversation.title",
-          createdAt: "$conversation.createdAt",
-          updatedAt: "$conversation.updatedAt",
-          latestFeedbackDate: 1,
-          resolved: "$conversation.resolved",
-
-          messages: {
+    // 5. Lookup user data
+    pipeline.push({
+      $lookup: {
+        from: "users",
+        let: {
+          userIds: {
             $map: {
-              input: "$messagesData",
-              as: "msg",
-              in: {
-                messageId: "$$msg._id",
-                sender: "$$msg.sender",
-                createdAt: "$$msg.createdAt",
-                updatedAt: "$$msg.updatedAt",
-                model: "$$msg.model",
-                feedback: "$$msg.feedback",
+              input: { $filter: { input: "$messagesData", as: "m", cond: { $eq: ["$$m.sender", "User"] } } },
+              as: "m",
+              in: "$$m.user"
+            }
+          }
+        },
+        pipeline: [
+          { $match: { $expr: { $in: [{ $toString: "$_id" }, "$$userIds"] } } }
+        ],
+        as: "usersData"
+      }
+    });
 
-                // Body/content based on sender
-                text: {
-                  $cond: [
-                    { $eq: ["$$msg.sender", "User"] },
-                    "$$msg.text",
-                    null
-                  ]
-                },
-
-                content: {
-                  $cond: [
-                    { $ne: ["$$msg.sender", "User"] },
-                    "$$msg.content",
-                    null
-                  ]
-                },
-
-                // User details (only for User messages)
-                user: {
-                  $cond: [
-                    { $eq: ["$$msg.sender", "User"] },
-                    {
-                      $let: {
-                        vars: {
-                          matchedUser: {
-                            $arrayElemAt: [
-                              {
-                                $filter: {
-                                  input: "$usersData",
-                                  as: "u",
-                                  cond: {
-                                    $eq: [
-                                      { $toString: "$$u._id" },
-                                      "$$msg.user"
-                                    ]
-                                  }
-                                }
-                              },
-                              0
-                            ]
-                          }
-                        },
-                        in: {
-                          _id: "$$matchedUser._id",
-                          name: "$$matchedUser.name",
-                          username: "$$matchedUser.username",
-                          email: "$$matchedUser.email"
-                        }
-                      }
-                    },
-                    null
-                  ]
+    // 6. Project final structure
+    pipeline.push({
+      $project: {
+        conversationId: 1,
+        title: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        resolved: 1,
+        messages: {
+          $map: {
+            input: { $sortArray: { input: "$messagesData", sortBy: { createdAt: 1 } } },
+            as: "msg",
+            in: {
+              messageId: "$$msg._id",
+              sender: "$$msg.sender",
+              createdAt: "$$msg.createdAt",
+              updatedAt: "$$msg.updatedAt",
+              model: "$$msg.model",
+              feedback: "$$msg.feedback",
+              text: { $cond: [{ $eq: ["$$msg.sender", "User"] }, "$$msg.text", null] },
+              content: { $cond: [{ $ne: ["$$msg.sender", "User"] }, "$$msg.content", null] },
+              user: {
+                $let: {
+                  vars: {
+                    matchedUser: {
+                      $arrayElemAt: [
+                        { $filter: { input: "$usersData", as: "u", cond: { $eq: [{ $toString: "$$u._id" }, "$$msg.user"] } } },
+                        0
+                      ]
+                    }
+                  },
+                  in: {
+                    _id: "$$matchedUser._id",
+                    name: "$$matchedUser.name",
+                    username: "$$matchedUser.username",
+                    email: "$$matchedUser.email"
+                  }
                 }
               }
             }
           }
         }
-      },
+      }
+    });
 
-      // 7. Sort by latest feedback date
-      { $sort: { latestFeedbackDate: -1 } },
-
-      // 8. Pagination
-      { $skip: skip },
-      { $limit: limit }
-    ];
-
-    const result = await db
-      .collection("messages")
-      .aggregate(pipeline)
-      .toArray();
-
-    // Get total count for pagination
-    const countPipeline = [
-      { $match: matchStage },
-      { $group: { _id: "$conversationId" } },
-      { $count: "total" }
-    ];
-
-    const countResult = await db
-      .collection("messages")
-      .aggregate(countPipeline)
-      .toArray();
-
-    const totalCount = countResult.length > 0 ? countResult[0]!.total : 0;
+    const result = await db.collection("conversations").aggregate(pipeline).toArray();
+    const countResult = await db.collection("conversations").aggregate(countPipeline).toArray();
+    const totalCount = countResult[0]?.total || 0;
 
     res.json({
       page,
@@ -247,45 +195,22 @@ app.get("/feedback-conversations", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error(err);
-    const error = err as Error;
-    res.status(500).json({ error: "Internal Server Error", message: error.message });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Additional endpoint to get a single feedback conversation by ID
 app.get("/feedback-conversations/:conversationId", async (req: Request, res: Response) => {
   try {
     const db = await connectDB();
     const { conversationId } = req.params;
 
     const pipeline = [
-      {
-        $match: {
-          conversationId: conversationId,
-          feedback: { $exists: true }
-        }
-      },
-      {
-        $lookup: {
-          from: "conversations",
-          localField: "conversationId",
-          foreignField: "conversationId",
-          as: "conversation"
-        }
-      },
-      { $unwind: "$conversation" },
+      { $match: { conversationId } },
       {
         $lookup: {
           from: "messages",
-          let: { messageIds: "$conversation.messages" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $in: ["$_id", "$$messageIds"] }
-              }
-            },
-            { $sort: { createdAt: 1 } }
-          ],
+          localField: "messages",
+          foreignField: "_id",
           as: "messagesData"
         }
       },
@@ -295,40 +220,28 @@ app.get("/feedback-conversations/:conversationId", async (req: Request, res: Res
           let: {
             userIds: {
               $map: {
-                input: {
-                  $filter: {
-                    input: "$messagesData",
-                    as: "msg",
-                    cond: { $eq: ["$$msg.sender", "User"] }
-                  }
-                },
-                as: "msg",
-                in: "$$msg.user"
+                input: { $filter: { input: "$messagesData", as: "m", cond: { $eq: ["$$m.sender", "User"] } } },
+                as: "m",
+                in: "$$m.user"
               }
             }
           },
           pipeline: [
-            {
-              $match: {
-                $expr: { $in: [{ $toString: "$_id" }, "$$userIds"] }
-              }
-            }
+            { $match: { $expr: { $in: [{ $toString: "$_id" }, "$$userIds"] } } }
           ],
           as: "usersData"
         }
       },
       {
         $project: {
-          _id: "$conversation._id",
-          conversationId: "$conversation.conversationId",
-          title: "$conversation.title",
-          createdAt: "$conversation.createdAt",
-          updatedAt: "$conversation.updatedAt",
-          resolved: "$conversation.resolved",
-
+          conversationId: 1,
+          title: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          resolved: 1,
           messages: {
             $map: {
-              input: "$messagesData",
+              input: { $sortArray: { input: "$messagesData", sortBy: { createdAt: 1 } } },
               as: "msg",
               in: {
                 messageId: "$$msg._id",
@@ -336,67 +249,34 @@ app.get("/feedback-conversations/:conversationId", async (req: Request, res: Res
                 createdAt: "$$msg.createdAt",
                 model: "$$msg.model",
                 feedback: "$$msg.feedback",
-                text: {
-                  $cond: [
-                    { $eq: ["$$msg.sender", "User"] },
-                    "$$msg.text",
-                    null
-                  ]
-                },
-                content: {
-                  $cond: [
-                    { $ne: ["$$msg.sender", "User"] },
-                    "$$msg.content",
-                    null
-                  ]
-                },
+                text: { $cond: [{ $eq: ["$$msg.sender", "User"] }, "$$msg.text", null] },
+                content: { $cond: [{ $ne: ["$$msg.sender", "User"] }, "$$msg.content", null] },
                 user: {
-                  $cond: [
-                    { $eq: ["$$msg.sender", "User"] },
-                    {
-                      $let: {
-                        vars: {
-                          matchedUser: {
-                            $arrayElemAt: [
-                              {
-                                $filter: {
-                                  input: "$usersData",
-                                  as: "u",
-                                  cond: {
-                                    $eq: [
-                                      { $toString: "$$u._id" },
-                                      "$$msg.user"
-                                    ]
-                                  }
-                                }
-                              },
-                              0
-                            ]
-                          }
-                        },
-                        in: {
-                          _id: "$$matchedUser._id",
-                          name: "$$matchedUser.name",
-                          username: "$$matchedUser.username",
-                          email: "$$matchedUser.email"
-                        }
+                  $let: {
+                    vars: {
+                      matchedUser: {
+                        $arrayElemAt: [
+                          { $filter: { input: "$usersData", as: "u", cond: { $eq: [{ $toString: "$$u._id" }, "$$msg.user"] } } },
+                          0
+                        ]
                       }
                     },
-                    null
-                  ]
+                    in: {
+                      _id: "$$matchedUser._id",
+                      name: "$$matchedUser.name",
+                      username: "$$matchedUser.username",
+                      email: "$$matchedUser.email"
+                    }
+                  }
                 }
               }
             }
           }
         }
-      },
-      { $limit: 1 }
+      }
     ];
 
-    const result = await db
-      .collection("messages")
-      .aggregate(pipeline)
-      .toArray();
+    const result = await db.collection("conversations").aggregate(pipeline).toArray();
 
     if (result.length === 0) {
       return res.status(404).json({ error: "Conversation not found" });
@@ -405,8 +285,7 @@ app.get("/feedback-conversations/:conversationId", async (req: Request, res: Res
     res.json(result[0]);
   } catch (err) {
     console.error(err);
-    const error = err as Error;
-    res.status(500).json({ error: "Internal Server Error", message: error.message });
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -768,7 +647,73 @@ app.get("/admin/knowledge/search", authenticateToken, requireSuperAdmin, async (
   }
 });
 
-// 5. Statistics API
+
+// Helper to format date keys for timeline consistent with MongoDB $dateToString
+const formatTimelineKey = (date: Date, rangeType: string, tz: string) => {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hour12: false
+    });
+    const parts = dtf.formatToParts(date);
+    const p: any = {};
+    parts.forEach(part => { p[part.type] = part.value; });
+
+    const Y = p.year;
+    const M = p.month;
+    const D = p.day;
+    const H = p.hour === '24' ? '00' : p.hour; // Handle 24h wrap if any
+
+    if (rangeType === '24h') return `${Y}-${M}-${D}T${H}:00:00`;
+    if (rangeType === 'month') return `${Y}-${M}-01`;
+    return `${Y}-${M}-${D}`;
+  } catch (e) {
+    console.error(`Error formatting timeline key for tz ${tz}:`, e);
+    // Fallback to UTC ISO if tz fails
+    return date.toISOString().split('.')[0];
+  }
+};
+
+// Helper to pad missing dates/hours
+const padTimeline = (data: any[], start: Date, end: Date, rangeType: string, tz: string) => {
+  const result = [];
+  const current = new Date(start);
+
+  // Align start date to the bucket
+  if (rangeType === '24h') current.setMinutes(0, 0, 0);
+  else if (rangeType === 'month') {
+    current.setDate(1);
+    current.setHours(0, 0, 0, 0);
+  }
+  else current.setHours(0, 0, 0, 0);
+
+  const dataMap = new Map(data.map(item => [item._id, item.count]));
+
+  let iterations = 0;
+  const MAX_ITERATIONS = 500;
+
+  console.log(`[DEBUG] padTimeline: start=${start.toISOString()}, end=${end.toISOString()}, range=${rangeType}, current_aligned=${current.toISOString()}`);
+
+  while (current <= end && iterations < MAX_ITERATIONS) {
+    iterations++;
+    const key = formatTimelineKey(current, rangeType, tz);
+    result.push({
+      _id: key,
+      count: dataMap.get(key) || 0
+    });
+
+    if (rangeType === '24h') current.setHours(current.getHours() + 1);
+    else if (rangeType === 'month') current.setMonth(current.getMonth() + 1);
+    else current.setDate(current.getDate() + 1);
+  }
+  console.log(`[DEBUG] padTimeline generated ${result.length} rows`);
+  return result;
+};
+
 app.get("/admin/stats", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
   try {
     const db = await connectDB();
@@ -782,25 +727,40 @@ app.get("/admin/stats", authenticateToken, requireSuperAdmin, async (req: Reques
     const thumbsUp = await db.collection("messages").countDocuments({ "feedback.rating": "thumbsUp" });
     const thumbsDown = await db.collection("messages").countDocuments({ "feedback.rating": "thumbsDown" });
 
-    // Questions by Date (Last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Questions Timeline
+    const range = req.query.range as string || '30d';
+    const timezone = req.query.tz as string || 'UTC';
+
+    let matchStage: any = { sender: "User" };
+    let format = "%Y-%m-%d";
+    let dateLimit = new Date();
+    let now = new Date();
+
+    if (range === '24h') {
+      dateLimit.setHours(dateLimit.getHours() - 24);
+      format = "%Y-%m-%dT%H:00:00";
+    } else if (range === 'month') {
+      dateLimit.setFullYear(dateLimit.getFullYear() - 1);
+      format = "%Y-%m-01";
+    } else {
+      // Default 30d
+      dateLimit.setDate(dateLimit.getDate() - 30);
+      format = "%Y-%m-%d";
+    }
+    matchStage.createdAt = { $gte: dateLimit };
 
     const questionsByDate = await db.collection("messages").aggregate([
-      {
-        $match: {
-          sender: "User",
-          createdAt: { $gte: thirtyDaysAgo }
-        }
-      },
+      { $match: matchStage },
       {
         $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          _id: { $dateToString: { format: format, date: "$createdAt", timezone: timezone } },
           count: { $sum: 1 }
         }
       },
       { $sort: { _id: 1 } }
     ]).toArray();
+
+    const paddedTimeline = padTimeline(questionsByDate, dateLimit, now, range, timezone);
 
     res.json({
       totals: {
@@ -810,11 +770,80 @@ app.get("/admin/stats", authenticateToken, requireSuperAdmin, async (req: Reques
         thumbsUp,
         thumbsDown
       },
-      questionsTimeline: questionsByDate
+      questionsTimeline: paddedTimeline
     });
   } catch (error) {
     console.error("Error fetching stats:", error);
     res.status(500).json({ error: "Failed to fetch statistics" });
+  }
+});
+
+// Export Stats to CSV
+app.get("/admin/stats/export", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const range = req.query.range as string || '30d';
+    const timezone = req.query.tz as string || 'UTC';
+
+    let matchStage: any = { sender: "User" };
+    let format = "%Y-%m-%d";
+    let dateLimit = new Date();
+    let now = new Date();
+
+    if (range === '24h') {
+      dateLimit.setHours(dateLimit.getHours() - 24);
+      format = "%Y-%m-%dT%H:00:00";
+    } else if (range === 'month') {
+      dateLimit.setFullYear(dateLimit.getFullYear() - 1);
+      format = "%Y-%m-01";
+    } else {
+      dateLimit.setDate(dateLimit.getDate() - 30);
+      format = "%Y-%m-%d";
+    }
+    matchStage.createdAt = { $gte: dateLimit };
+
+    const questionsByDate = await db.collection("messages").aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: { $dateToString: { format: format, date: "$createdAt", timezone: timezone } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]).toArray();
+
+    const timeline = padTimeline(questionsByDate, dateLimit, now, range, timezone);
+    console.log(`[DEBUG] Export stats: range=${range}, timeline_len=${timeline.length}, data_points=${questionsByDate.length}`);
+
+    // Convert to CSV with BOM for Excel compatibility
+    let csv = "\uFEFFDate,Question Count\n";
+    timeline.forEach(row => {
+      // Special formatting for CSV to be more human readable but still parseable
+      let displayDate = row._id || '';
+      if (row._id) {
+        try {
+          const d = new Date(row._id.includes('T') ? row._id : row._id + 'T00:00:00');
+          if (range === '24h') displayDate = d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone });
+          else if (range === 'month') displayDate = d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: timezone });
+          else displayDate = d.toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: timezone });
+
+          // Escape commas if any (shouldn't be in these formats but good practice)
+          if (displayDate.includes(',')) displayDate = `"${displayDate}"`;
+        } catch (e) { }
+      }
+
+      csv += `${displayDate},${row.count}\n`;
+    });
+
+    console.log(`[DEBUG] CSV generated, length: ${csv.length}`);
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="stats_${range}.csv"`);
+    res.send(csv);
+  } catch (error) {
+    console.error("Error exporting stats:", error);
+    res.status(500).json({ error: "Failed to export statistics" });
   }
 });
 
@@ -829,6 +858,48 @@ const validateCollection = (req: Request, res: Response, next: express.NextFunct
   }
   next();
 };
+
+// Bulk Replace FAQs from Markdown
+app.post("/admin/db/faqs/bulk-replace", authenticateToken, requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const db = await connectDB();
+    const { markdown } = req.body;
+
+    if (!markdown || typeof markdown !== 'string') {
+      return res.status(400).json({ error: "Markdown content is required" });
+    }
+
+    // Simple parser for FAQ Markdown
+    // Matches headers (## or ###) as questions and the following text as answer
+    const blocks = markdown.split(/^(?:#{1,6})\s+/m).filter(b => b.trim());
+    const faqs = blocks.map(block => {
+      const lines = block.split('\n');
+      const question = (lines[0] || '').trim();
+      const answer = lines.slice(1).join('\n').trim();
+      return { question, answer };
+    }).filter(f => f.question && f.answer);
+
+    if (faqs.length === 0) {
+      return res.status(400).json({ error: "No valid FAQ pairs found in Markdown. Use headers (#, ##, ###) for questions." });
+    }
+
+    const now = new Date();
+    const docs = faqs.map(f => ({
+      ...f,
+      source: "Bulk Import",
+      createdAt: now,
+      updatedAt: now
+    }));
+
+    // Clear existing and insert new
+    await db.collection("questions").deleteMany({});
+    const result = await db.collection("questions").insertMany(docs);
+    res.json({ success: true, count: result?.insertedCount || 0 });
+  } catch (error: any) {
+    console.error("Bulk Replace Error:", error);
+    res.status(500).json({ error: "Failed to perform bulk replace", details: error.message });
+  }
+});
 
 // List documents
 app.get("/admin/db/:collection", authenticateToken, requireSuperAdmin, validateCollection, async (req: Request, res: Response) => {

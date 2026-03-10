@@ -12,7 +12,7 @@ interface UseConversationsResult {
     refresh: () => void;
 }
 
-export function useConversations(limit: number = 20, filter: string = 'all'): UseConversationsResult {
+export function useConversations(limit: number = 20, filter: string = 'all', search: string = ''): UseConversationsResult {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function useConversations(limit: number = 20, filter: string = 'all'): Us
         try {
             setLoading(true);
             setError(null);
-            const response = await fetch(`/feedback-conversations?page=${page}&limit=${limit}&filter=${filter}`);
+            const response = await fetch(`/feedback-conversations?page=${page}&limit=${limit}&filter=${filter}&q=${encodeURIComponent(search)}`);
             if (!response.ok) {
                 throw new Error('Failed to fetch conversations');
             }
@@ -41,7 +41,7 @@ export function useConversations(limit: number = 20, filter: string = 'all'): Us
 
     useEffect(() => {
         fetchConversations();
-    }, [page, limit, filter]);
+    }, [page, limit, filter, search]);
 
     return {
         conversations,

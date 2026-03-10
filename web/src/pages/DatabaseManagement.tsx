@@ -2,10 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
     Database,
-    Table,
     Plus,
-    Pencil,
-    Trash2,
     X,
     Save,
     Loader2,

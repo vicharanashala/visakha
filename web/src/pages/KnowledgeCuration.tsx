@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BookOpen, AlertCircle, ArrowRight, Save, CheckCircle, RefreshCcw, MessageSquare, ThumbsDown, ThumbsUp, Circle, Clock } from 'lucide-react';
+import { MessageBubble } from '../components/MessageBubble';
+import { BookOpen, AlertCircle, Save, CheckCircle, RefreshCcw, MessageSquare, ThumbsDown, ThumbsUp, Circle, Clock, Search, X } from 'lucide-react';
 import { useConversations } from '../hooks/useConversations';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
@@ -25,7 +26,19 @@ const getMessageText = (content?: string | ContentBlock[]): string => {
 
 export const KnowledgeCuration: React.FC = () => {
     const [filter, setFilter] = useState<'all' | 'thumbsUp' | 'thumbsDown' | 'unanswered'>('all');
-    const { conversations, loading: loadingConversations, page, totalPages, setPage, refresh } = useConversations(20, filter);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
+    // Debounce search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+            setPage(1); // Reset to page 1 on search
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    const { conversations, loading: loadingConversations, page, totalPages, setPage, refresh } = useConversations(20, filter, debouncedSearch);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
     const [goldenKnowledge, setGoldenKnowledge] = useState<GoldenKnowledge[]>([]);
@@ -40,7 +53,16 @@ export const KnowledgeCuration: React.FC = () => {
 
     useEffect(() => {
         fetchGoldenKnowledge();
-    }, []);
+
+        // 1-minute auto-refresh
+        const interval = setInterval(() => {
+            console.log("Auto-refreshing knowledge data...");
+            refresh();
+            fetchGoldenKnowledge();
+        }, 60000);
+
+        return () => clearInterval(interval);
+    }, [refresh]);
 
     const fetchGoldenKnowledge = async () => {
         try {
@@ -108,12 +130,32 @@ export const KnowledgeCuration: React.FC = () => {
                         Feedback Inbox
                     </h2>
 
+                    {/* Search Bar */}
+                    <div className="relative mb-4 group">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-brand-primary transition-colors" />
+                        <input
+                            type="text"
+                            placeholder="Search questions..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-8 py-2 bg-gray-100 dark:bg-brand-surface border-transparent focus:border-brand-primary focus:bg-white dark:focus:bg-brand-card focus:ring-1 focus:ring-brand-primary rounded-lg text-xs transition-all outline-none"
+                        />
+                        {searchTerm && (
+                            <button
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+                            >
+                                <X className="w-3 h-3 text-gray-400" />
+                            </button>
+                        )}
+                    </div>
+
                     {/* Filter Tabs */}
                     <div className="flex flex-wrap gap-1 p-1 bg-gray-100 dark:bg-brand-surface rounded-lg">
                         {[
                             { id: 'all', label: 'All', icon: MessageSquare },
-                            { id: 'thumbsUp', label: 'Positive', icon: ThumbsUp, color: 'text-green-500' },
-                            { id: 'thumbsDown', label: 'Negative', icon: ThumbsDown, color: 'text-red-500' },
+                            { id: 'thumbsUp', label: 'Helpful', icon: ThumbsUp, color: 'text-green-500' },
+                            { id: 'thumbsDown', label: 'Needs Improvement', icon: ThumbsDown, color: 'text-red-500' },
                             { id: 'unanswered', label: 'Unanswered', icon: AlertCircle, color: 'text-orange-500' }
                         ].map((tab) => (
                             <button
@@ -122,6 +164,7 @@ export const KnowledgeCuration: React.FC = () => {
                                     setFilter(tab.id as any);
                                     setPage(1);
                                     setSelectedConvId(null);
+                                    setSearchTerm(''); // Reset search on filter change
                                 }}
                                 className={clsx(
                                     "flex-1 flex flex-col items-center justify-center py-2 px-1 rounded-md transition-all text-[10px] font-medium border",
@@ -171,7 +214,7 @@ export const KnowledgeCuration: React.FC = () => {
                                 <div className="mt-2 flex flex-wrap gap-1">
                                     {conv.messages.some(m => m.feedback?.rating === 'thumbsDown') && (
                                         <div className="inline-flex items-center gap-1 text-[9px] text-red-600 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded border border-red-100 dark:border-red-900/30">
-                                            <ThumbsDown size={10} /> Needs Fix
+                                            <ThumbsDown size={10} /> Needs Improvement
                                         </div>
                                     )}
                                     {conv.messages.some(m => m.feedback?.tag === 'not_matched') && (
@@ -398,41 +441,18 @@ const ConversationDetailProxy: React.FC<{
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
                 {conversation.messages.map((msg) => (
                     <div
                         key={msg.messageId}
                         onClick={() => msg.feedback ? onSelectMessage(msg) : null}
                         className={clsx(
                             "rounded-lg transition-all",
-                            msg.feedback && "cursor-pointer ring-1 ring-red-200 dark:ring-red-900/30 hover:ring-brand-primary hover:shadow-lg",
-                            selectedMessageId === msg.messageId && "ring-2 ring-brand-primary bg-brand-primary/5"
+                            msg.feedback && "cursor-pointer hover:ring-2 hover:ring-brand-primary/50",
+                            selectedMessageId === msg.messageId && "ring-2 ring-brand-primary bg-brand-primary/5 shadow-md shadow-brand-primary/10"
                         )}
                     >
-                        <div className={clsx(
-                            "p-4 rounded-lg",
-                            msg.sender === 'User' ? "bg-gray-100 dark:bg-brand-surface ml-8" : "bg-white dark:bg-brand-card mr-8 border border-gray-100 dark:border-gray-800"
-                        )}>
-                            <div className="flex items-center gap-2 mb-2">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{msg.sender}</span>
-                                {msg.model && <span className="text-[10px] text-gray-500 bg-gray-200 dark:bg-gray-800 px-1 rounded">{msg.model}</span>}
-                            </div>
-                            <div className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{getMessageText(msg.content) || msg.text}</div>
-                            {msg.feedback && (
-                                <div className={clsx(
-                                    "mt-3 p-2 rounded-md text-[11px] flex items-center justify-between",
-                                    msg.feedback.rating === 'thumbsDown' ? "bg-red-50 text-red-700 dark:bg-red-900/20" : "bg-green-50 text-green-700 dark:bg-green-900/20"
-                                )}>
-                                    <div className="flex items-center gap-2">
-                                        {msg.feedback.rating === 'thumbsDown' ? <ThumbsDown size={12} /> : <ThumbsUp size={12} />}
-                                        <span>{msg.feedback.text || (msg.feedback.rating === 'thumbsDown' ? "Issue reported" : "Helpful")}</span>
-                                    </div>
-                                    <span className="font-bold flex items-center gap-1 uppercase tracking-tighter">
-                                        <ArrowRight size={10} /> Curate
-                                    </span>
-                                </div>
-                            )}
-                        </div>
+                        <MessageBubble message={msg} />
                     </div>
                 ))}
             </div>

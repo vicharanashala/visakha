@@ -7,7 +7,7 @@ import { connectDB } from './db.js';
 let _client: OAuth2Client | null = null;
 
 function getGoogleClient() {
-    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
     if (!CLIENT_ID || CLIENT_ID === 'your-client-id.apps.googleusercontent.com') {
         console.warn('⚠️ WARNING: GOOGLE_CLIENT_ID is not set or using placeholder value.');
     }
@@ -58,7 +58,7 @@ export async function googleLogin(req: Request, res: Response) {
         const client = getGoogleClient();
         const ticket = await client.verifyIdToken({
             idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID || '',
+            audience: (process.env.GOOGLE_CLIENT_ID || '').trim(),
         });
         const payload = ticket.getPayload();
 
@@ -92,7 +92,8 @@ export async function googleLogin(req: Request, res: Response) {
 
     } catch (error: any) {
         console.error('Auth Error during Google verification:', error.message || error);
-        res.status(401).json({ error: 'Authentication failed', details: error.message });
+        console.error('Client ID in environment:', process.env.GOOGLE_CLIENT_ID);
+        res.status(401).json({ error: 'Authentication failed', details: error.message || error.toString() });
     }
 }
 

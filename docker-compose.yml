@@ -1,0 +1,19 @@
+
+services:
+  web:
+    build:
+      context: ./web
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: always
+
+  api:
+    build:
+      context: ./api
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./api/.env
+    restart: always

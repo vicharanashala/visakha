@@ -19,6 +19,8 @@ interface FAQ {
     _id: string;
     question: string;
     answer: string;
+    keys?: string[];
+    category?: string;
 }
 
 export const FAQPage = () => {
@@ -35,7 +37,8 @@ export const FAQPage = () => {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [formData, setFormData] = useState({ question: '', answer: '' });
+    const [formData, setFormData] = useState<{ question: string; answer: string; keys: string[] }>({ question: '', answer: '', keys: [] });
+    const [keyInput, setKeyInput] = useState('');
 
     const fetchFAQs = async () => {
         setLoading(true);
@@ -86,14 +89,58 @@ export const FAQPage = () => {
 
     const handleEdit = (faq: FAQ) => {
         setEditingId(faq._id);
-        setFormData({ question: faq.question, answer: faq.answer });
+        
+        let initialKeys = faq.keys || [];
+        let initialAnswer = faq.answer;
+        
+        // Backward compatibility: If no explicit keys exist, extract from the answer text
+        if (initialKeys.length === 0 && initialAnswer) {
+            const lines = initialAnswer.split('\n');
+            const newAnswerLines = [];
+            
+            for (const line of lines) {
+                const lower = line.trim().toLowerCase();
+                if (lower.startsWith('keys:') || lower.startsWith('tags:')) {
+                    const keysString = line.substring(line.indexOf(':') + 1);
+                    initialKeys = keysString.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                } else {
+                    newAnswerLines.push(line);
+                }
+            }
+            // Strip tags line out of the editable answer to avoid duplication
+            initialAnswer = newAnswerLines.join('\n').trim();
+        }
+
+        // Second fallback: Use category if available
+        if (initialKeys.length === 0 && faq.category) {
+            initialKeys = [faq.category];
+        }
+
+        setFormData({ question: faq.question, answer: initialAnswer, keys: initialKeys });
+        setKeyInput('');
         setIsModalOpen(true);
     };
 
     const handleAddNew = () => {
         setEditingId(null);
-        setFormData({ question: '', answer: '' });
+        setFormData({ question: '', answer: '', keys: [] });
+        setKeyInput('');
         setIsModalOpen(true);
+    };
+
+    const handleAddKey = (e?: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e && e.key !== 'Enter') return;
+        if (e) e.preventDefault();
+        
+        const trimmedKey = keyInput.trim();
+        if (trimmedKey && !formData.keys.includes(trimmedKey)) {
+            setFormData(prev => ({ ...prev, keys: [...prev.keys, trimmedKey] }));
+            setKeyInput('');
+        }
+    };
+
+    const handleRemoveKey = (keyToRemove: string) => {
+        setFormData(prev => ({ ...prev, keys: prev.keys.filter(k => k !== keyToRemove) }));
     };
 
     const handleSave = async () => {
@@ -243,7 +290,48 @@ export const FAQPage = () => {
                                     <div className="flex justify-between items-start">
                                         <div className="flex-1 pr-4">
                                             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{faq.question || 'No Question'}</h3>
-                                            <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{faq.answer || 'No Answer'}</p>
+                                            {/* Render Keys */}
+                                            {(() => {
+                                                const hasExplicitKeys = faq.keys && faq.keys.length > 0;
+                                                let displayKeys: string[] = faq.keys || [];
+                                                let displayAnswer = faq.answer || 'No Answer';
+                                                
+                                                // If no explicit keys, try to parse from answer text for backward compatibility
+                                                if (!hasExplicitKeys && faq.answer) {
+                                                    const lines = faq.answer.split('\n');
+                                                    const newAnswerLines = [];
+                                                    for (const line of lines) {
+                                                        const lower = line.trim().toLowerCase();
+                                                        if (lower.startsWith('keys:') || lower.startsWith('tags:')) {
+                                                            const keysString = line.substring(line.indexOf(':') + 1);
+                                                            displayKeys = keysString.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                                                        } else {
+                                                            newAnswerLines.push(line);
+                                                        }
+                                                    }
+                                                    displayAnswer = newAnswerLines.join('\n').trim() || 'No Answer';
+                                                }
+
+                                                // Second fallback logic: Use category if it exists
+                                                if (displayKeys.length === 0 && faq.category) {
+                                                    displayKeys = [faq.category];
+                                                }
+
+                                                return (
+                                                    <>
+                                                        <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap mb-3">{displayAnswer}</p>
+                                                        {displayKeys.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                                {displayKeys.map((key, index) => (
+                                                                    <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-primary/10 text-brand-primary dark:bg-brand-primary/20 dark:text-teal-400">
+                                                                        {key}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                         <div className="flex space-x-2 flex-shrink-0">
                                             <button
@@ -362,6 +450,45 @@ export const FAQPage = () => {
                                     className="w-full px-4 py-2 bg-white dark:bg-brand-surface border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-transparent text-gray-900 dark:text-gray-100 h-40 resize-y transition-all placeholder-gray-400 dark:placeholder-gray-500"
                                     placeholder="Enter the answer here..."
                                 />
+                            </div>
+                            
+                            {/* Keys / Tags Section */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Keys / Tags</label>
+                                <div className="flex space-x-2 mb-3">
+                                    <input
+                                        type="text"
+                                        value={keyInput}
+                                        onChange={(e) => setKeyInput(e.target.value)}
+                                        onKeyDown={handleAddKey}
+                                        className="flex-1 px-4 py-2 bg-white dark:bg-brand-surface border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-transparent text-gray-900 dark:text-gray-100 transition-all placeholder-gray-400 dark:placeholder-gray-500"
+                                        placeholder="Add a key (e.g., login) and press Enter"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddKey()}
+                                        className="px-4 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                    >
+                                        Add
+                                    </button>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {formData.keys.map((key, index) => (
+                                        <span key={index} className="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-brand-primary/10 text-brand-primary dark:bg-brand-primary/20 dark:text-teal-400">
+                                            {key}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveKey(key)}
+                                                className="ml-1.5 flex-shrink-0 text-brand-primary hover:text-teal-700 focus:outline-none"
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    {formData.keys.length === 0 && (
+                                        <span className="text-sm text-gray-500 dark:text-gray-400 italic">No keys added yet.</span>
+                                    )}
+                                </div>
                             </div>
                         </div>
 

@@ -1,28 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { MessageBubble } from '../components/MessageBubble';
-import { BookOpen, AlertCircle, Save, CheckCircle, RefreshCcw, MessageSquare, ThumbsDown, ThumbsUp, Circle, Clock, Search, X } from 'lucide-react';
+import { BookOpen, AlertCircle, CheckCircle, MessageSquare, ThumbsDown, ThumbsUp, Circle, Clock, Search, X } from 'lucide-react';
 import { useConversations } from '../hooks/useConversations';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
-import type { Conversation, Message, ContentBlock } from '../types';
-
-interface GoldenKnowledge {
-    _id?: string;
-    question: string;
-    answer: string;
-    tags: string[];
-}
-
-// Helper to extract text from message content
-const getMessageText = (content?: string | ContentBlock[]): string => {
-    if (!content) return '';
-    if (typeof content === 'string') return content;
-    return content
-        .filter(block => block.type === 'text' || block.type === 'think')
-        .map(block => block.text || block.think || '')
-        .join('\n');
-};
+import type { Conversation } from '../types';
 
 export const KnowledgeCuration: React.FC = () => {
     const [filter, setFilter] = useState<'all' | 'thumbsUp' | 'thumbsDown' | 'unanswered'>('all');
@@ -40,85 +23,15 @@ export const KnowledgeCuration: React.FC = () => {
 
     const { conversations, loading: loadingConversations, page, totalPages, setPage, refresh } = useConversations(20, filter, debouncedSearch);
     const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
-    const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-    const [goldenKnowledge, setGoldenKnowledge] = useState<GoldenKnowledge[]>([]);
-
-    // Editor State
-    const [editorQuestion, setEditorQuestion] = useState('');
-    const [editorAnswer, setEditorAnswer] = useState('');
-    const [editorTags, setEditorTags] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [syncing, setSyncing] = useState(false);
-    const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     useEffect(() => {
-        fetchGoldenKnowledge();
-
         // 1-minute auto-refresh
         const interval = setInterval(() => {
-            console.log("Auto-refreshing knowledge data...");
             refresh();
-            fetchGoldenKnowledge();
         }, 60000);
 
         return () => clearInterval(interval);
     }, [refresh]);
-
-    const fetchGoldenKnowledge = async () => {
-        try {
-            const res = await axios.get('/admin/knowledge');
-            setGoldenKnowledge(res.data);
-        } catch (err) {
-            console.error("Failed to fetch knowledge", err);
-        }
-    };
-
-    const handleSelectMessage = (msg: Message) => {
-        setSelectedMessage(msg);
-        setEditorQuestion(msg.text || '');
-        setEditorAnswer(getMessageText(msg.content));
-        setEditorTags('curated, feedback-fix');
-        setMessage(null);
-    };
-
-    const handleSave = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSaving(true);
-        setMessage(null);
-
-        try {
-            await axios.post('/admin/knowledge', {
-                question: editorQuestion,
-                answer: editorAnswer,
-                tags: editorTags.split(',').map(t => t.trim()).filter(Boolean),
-                sourceMessageId: selectedMessage?.messageId
-            });
-
-            setMessage({ type: 'success', text: 'Saved to Golden Knowledge Base!' });
-            setEditorQuestion('');
-            setEditorAnswer('');
-            setEditorTags('');
-            setSelectedMessage(null);
-            fetchGoldenKnowledge();
-        } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to save knowledge.' });
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const handleSyncToRAG = async () => {
-        setSyncing(true);
-        setMessage(null);
-        try {
-            const res = await axios.post('/admin/knowledge/sync');
-            setMessage({ type: 'success', text: res.data.message || 'Synced to RAG DB!' });
-        } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to sync to RAG DB.' });
-        } finally {
-            setSyncing(false);
-        }
-    };
 
     return (
         <div className="h-[calc(100vh-4rem)] flex overflow-hidden">
@@ -245,94 +158,11 @@ export const KnowledgeCuration: React.FC = () => {
                 {selectedConvId ? (
                     <div className="flex h-full">
                         <div className="flex-1 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-brand-card overflow-hidden flex flex-col">
-                            {/* Override ConversationDetail to allow selecting messages for curation */}
                             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                                 <ConversationDetailProxy
                                     conversationId={selectedConvId}
-                                    onSelectMessage={handleSelectMessage}
-                                    selectedMessageId={selectedMessage?.messageId}
                                     onRefresh={refresh}
                                 />
-                            </div>
-                        </div>
-
-                        {/* 3. Curator Column */}
-                        <div className="w-96 flex flex-col p-6 space-y-6 overflow-y-auto">
-                            <div className="bg-white dark:bg-brand-card p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm shadow-brand-primary/5">
-                                <h3 className="font-bold mb-4 flex items-center gap-2">
-                                    <Save className="w-4 h-4 text-brand-primary" />
-                                    Curator Editor
-                                </h3>
-
-                                {selectedMessage ? (
-                                    <form onSubmit={handleSave} className="space-y-4">
-                                        <div className="text-[10px] uppercase font-bold text-gray-400">Context Source</div>
-                                        <div className="p-3 bg-gray-50 dark:bg-brand-surface rounded text-xs border border-gray-100 dark:border-gray-700 italic">
-                                            "{selectedMessage.text?.length || 0 > 100 ? selectedMessage.text?.substring(0, 100) + '...' : selectedMessage.text}"
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Standardized Question</label>
-                                            <input
-                                                className="w-full px-3 py-2 border rounded-md dark:bg-brand-surface dark:border-gray-600 text-sm"
-                                                value={editorQuestion}
-                                                onChange={e => setEditorQuestion(e.target.value)}
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Golden Answer</label>
-                                            <textarea
-                                                className="w-full px-3 py-2 border rounded-md dark:bg-brand-surface dark:border-gray-600 h-32 text-sm"
-                                                value={editorAnswer}
-                                                onChange={e => setEditorAnswer(e.target.value)}
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] uppercase font-bold text-gray-500 mb-1">Tags</label>
-                                            <input
-                                                className="w-full px-3 py-2 border rounded-md dark:bg-brand-surface dark:border-gray-600 text-sm"
-                                                value={editorTags}
-                                                onChange={e => setEditorTags(e.target.value)}
-                                            />
-                                        </div>
-
-                                        <div className="flex flex-col gap-3 pt-2">
-                                            {message && (
-                                                <div className={clsx("text-xs p-2 rounded", message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>
-                                                    {message.text}
-                                                </div>
-                                            )}
-                                            <div className="flex gap-2">
-                                                <button type="button" onClick={() => setSelectedMessage(null)} className="flex-1 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-md transition-colors">Cancel</button>
-                                                <button type="submit" disabled={saving} className="flex-1 py-2 bg-brand-primary text-white rounded-md hover:bg-brand-primary/90 transition-colors shadow-lg shadow-brand-primary/20">{saving ? 'Saving...' : 'Save Entry'}</button>
-                                            </div>
-                                        </div>
-                                    </form>
-                                ) : (
-                                    <div className="h-64 flex flex-col items-center justify-center text-center text-gray-400 space-y-3">
-                                        <AlertCircle className="w-10 h-10 opacity-20" />
-                                        <p className="text-sm">Select a message with feedback to begin curation.</p>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* RAG DB Sync Card */}
-                            <div className="bg-white dark:bg-brand-card p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                                <h3 className="font-bold mb-2 flex items-center gap-2">
-                                    <RefreshCcw className="w-4 h-4 text-purple-500" />
-                                    Pipeline Control
-                                </h3>
-                                <p className="text-xs text-gray-500 mb-4">Sync verified golden knowledge to the search-optimized RAG database.</p>
-                                <button
-                                    onClick={handleSyncToRAG}
-                                    disabled={syncing || goldenKnowledge.length === 0}
-                                    className="w-full py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-sm font-medium shadow-lg shadow-purple-500/20"
-                                >
-                                    <RefreshCcw className={clsx("w-4 h-4", syncing && "animate-spin")} />
-                                    {syncing ? 'Syncing...' : 'Sync to RAG DB'}
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -348,13 +178,11 @@ export const KnowledgeCuration: React.FC = () => {
     );
 };
 
-// Helper component to wrap ConversationDetail and add click handlers to message bubbles
+// Helper component to wrap ConversationDetail
 const ConversationDetailProxy: React.FC<{
     conversationId: string;
-    onSelectMessage: (msg: Message) => void;
-    selectedMessageId?: string;
     onRefresh: () => void;
-}> = ({ conversationId, onSelectMessage, selectedMessageId, onRefresh }) => {
+}> = ({ conversationId, onRefresh }) => {
     const [conversation, setConversation] = useState<Conversation | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -443,15 +271,7 @@ const ConversationDetailProxy: React.FC<{
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
                 {conversation.messages.map((msg) => (
-                    <div
-                        key={msg.messageId}
-                        onClick={() => msg.feedback ? onSelectMessage(msg) : null}
-                        className={clsx(
-                            "rounded-lg transition-all",
-                            msg.feedback && "cursor-pointer hover:ring-2 hover:ring-brand-primary/50",
-                            selectedMessageId === msg.messageId && "ring-2 ring-brand-primary bg-brand-primary/5 shadow-md shadow-brand-primary/10"
-                        )}
-                    >
+                    <div key={msg.messageId} className="rounded-lg transition-all">
                         <MessageBubble message={msg} />
                     </div>
                 ))}

@@ -597,8 +597,8 @@ app.post("/admin/knowledge/sync", authenticateToken, requireSuperAdmin, async (r
     const ragItems = goldenItems.map(item => ({
       ...item,
       syncedAt: new Date(),
-      // We can add a 'search_text' field that combines question and answer for better indexing
-      searchText: `${item.question} ${item.answer} ${item.tags ? item.tags.join(' ') : ''}`
+      // We add a 'searchText' field that combines question, answer, and tags for better indexing
+      searchText: `${item.question} ${item.answer} ${item.tags ? item.tags.join(' ') : ''}`.toLowerCase()
     }));
 
     if (ragItems.length === 0) {
@@ -609,10 +609,13 @@ app.post("/admin/knowledge/sync", authenticateToken, requireSuperAdmin, async (r
     await db.collection("rag_knowledge").deleteMany({});
     const result = await db.collection("rag_knowledge").insertMany(ragItems);
 
+    // Ensure text index exists after sync
+    await db.collection("rag_knowledge").createIndex({ searchText: "text" });
+
     res.json({
       success: true,
       count: result.insertedCount,
-      message: "Golden knowledge successfully synced to RAG DB"
+      message: "Golden knowledge successfully synced and indexed to RAG DB"
     });
   } catch (error) {
     console.error("Error syncing to RAG:", error);
@@ -632,12 +635,9 @@ app.get("/admin/knowledge/search", authenticateToken, requireSuperAdmin, async (
 
     const items = await db.collection("rag_knowledge")
       .find({
-        $or: [
-          { question: new RegExp(q, 'i') },
-          { answer: new RegExp(q, 'i') },
-          { tags: new RegExp(q, 'i') }
-        ]
+        $text: { $search: q }
       })
+      .sort({ score: { $meta: "textScore" } })
       .limit(10)
       .toArray();
 
@@ -875,8 +875,26 @@ app.post("/admin/db/faqs/bulk-replace", authenticateToken, requireSuperAdmin, as
     const faqs = blocks.map(block => {
       const lines = block.split('\n');
       const question = (lines[0] || '').trim();
-      const answer = lines.slice(1).join('\n').trim();
-      return { question, answer };
+      
+      let answerLines: string[] = [];
+      let keys: string[] = [];
+
+      // Extract Keys/Tags and construct Answer
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const lowerLine = line.toLowerCase();
+        
+        if (lowerLine.startsWith('keys:') || lowerLine.startsWith('tags:')) {
+           // Parse comma-separated keys
+           const keysString = line.substring(line.indexOf(':') + 1);
+           keys = keysString.split(',').map(k => k.trim()).filter(k => k.length > 0);
+        } else {
+           answerLines.push(lines[i]); // Keep original formatting
+        }
+      }
+
+      const answer = answerLines.join('\n').trim();
+      return { question, answer, keys };
     }).filter(f => f.question && f.answer);
 
     if (faqs.length === 0) {

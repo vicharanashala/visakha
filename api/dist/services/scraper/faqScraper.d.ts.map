@@ -1,0 +1,1 @@
+{"version":3,"file":"faqScraper.d.ts","sourceRoot":"","sources":["../../../src/services/scraper/faqScraper.ts"],"names":[],"mappings":"AAEA,MAAM,WAAW,aAAa;IAC5B,KAAK,EAAE,MAAM,CAAC;IACd,QAAQ,EAAE,MAAM,CAAC;IACjB,OAAO,EAAE,MAAM,CAAC;IAChB,SAAS,EAAE,MAAM,CAAC;CACnB;AAED,wBAAsB,cAAc,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,aAAa,EAAE,CAAC,CAsF7E"}

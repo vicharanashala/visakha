@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-primary: #0F766E;
+  /* Teal 700 - Better contrast */
+  --color-brand-secondary: #C2410C;
+  /* Orange 700 - Better contrast */
+  --color-brand-dark: #0f172a;
+  /* Slate 900 */
+  --color-brand-card: #1e293b;
+  /* Slate 800 */
+  --color-brand-surface: #334155;
+  /* Slate 700 */
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 transition-colors duration-300;
+  }
+
+  html.dark body {
+    @apply bg-brand-dark text-gray-100;
+  }
+}
